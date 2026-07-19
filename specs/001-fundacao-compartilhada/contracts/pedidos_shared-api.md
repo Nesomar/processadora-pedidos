@@ -8,7 +8,7 @@ pedidos_shared/
 ├── models.py        # Order, OrderItem, MessageEnvelope
 ├── status.py         # OrderStatus (enum), is_valid_transition(current, next) -> bool
 ├── settings.py         # Settings (Pydantic BaseSettings)
-├── idempotency.py        # mark_message_processed(message_id, consumer) -> bool
+├── idempotency.py        # mark_message_processed(message_id, consumer, settings) -> bool
 ├── masking.py               # mask_document(document: str) -> str
 ├── logging.py                 # get_logger(name: str) -> logging.Logger, JsonFormatter
 ├── file_layout.py               # parse_file(lines) -> ParsedFile; ArquivoInvalidoError,
