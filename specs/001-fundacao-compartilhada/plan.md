@@ -1,48 +1,43 @@
 # Implementation Plan: Fundação Compartilhada (pedidos_shared)
 
-**Branch**: `feature/001-fundacao-compartilhada` | **Date**: 2026-07-18 | **Spec**: [spec.md](./spec.md)
+**Branch**: `feature/001-fundacao-compartilhada` | **Date**: 2026-07-18 (revisado) | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/001-fundacao-compartilhada/spec.md`
+**Input**: Feature specification from `/specs/001-fundacao-compartilhada/spec.md`, realinhada a
+`docs/01-dominio-e-contratos.md`.
 
 ## Summary
 
-Criar o pacote Python `pedidos_shared`, ponto único de verdade para: contratos de mensagem
-(Pydantic v2), o enum `StatusPedido` e suas transições válidas, `Settings` de infraestrutura
-lido de variáveis de ambiente, clientes finos SQS/DynamoDB/S3 (boto3, `endpoint_url` do
-Ministack), um logger JSON estruturado com `orderId`/`correlationId`, mascaramento de documento
-do cliente e um parser de arquivo posicional genérico. Nenhum outro serviço pode redefinir esses
-contratos localmente (constitution III). Abordagem técnica: funções puras em `domain/`-equivalente
-sem I/O, wrappers finos e síncronos sobre boto3, `logging` da stdlib com formatter JSON custom —
-sem dependências novas além das já obrigatórias pela constitution (ver research.md).
+Criar o pacote `pedidos_shared`: `Order`/`OrderItem`/`MessageEnvelope` (Pydantic v2), o enum
+`OrderStatus` (9 estados) com `is_valid_transition`, `Settings` de infraestrutura (env vars
+nativas do Ministack: `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`), clientes finos SQS/DynamoDB/S3, `mark_message_processed` (idempotência
+via tabela `processed_messages`), logger JSON, `mask_document` e um parser dedicado ao layout
+posicional fixo de `docs/01-dominio-e-contratos.md` §6. Todos os nomes, estados e formatos vêm
+literalmente desse documento — nenhuma invenção nesta feature.
 
 ## Technical Context
 
 **Language/Version**: Python 3.12
 
-**Primary Dependencies**: Pydantic v2, boto3 (todos já mandatados pela constitution seção II); sem
-dependências novas — logging via stdlib (ver research.md #1)
+**Primary Dependencies**: Pydantic v2, boto3 (constitution II); sem dependência nova — logging via
+stdlib (research.md #1)
 
-**Storage**: N/A diretamente (o pacote é cliente de DynamoDB/S3/SQS, não persiste estado próprio)
+**Storage**: N/A diretamente — cliente de DynamoDB (`orders`, `processed_messages`) e S3
+(`pedidos-bucket`), não persiste estado próprio
 
-**Testing**: pytest, pytest-asyncio (não usado nesta feature — sem I/O concorrente real), moto ou
-Ministack para os testes de integração dos clientes
+**Testing**: pytest; testes de idempotência e clientes rodam contra Ministack (integração)
 
-**Target Platform**: biblioteca Python consumida em containers Linux (ECS) e Lambda; desenvolvida
-localmente em qualquer SO com Python 3.12 + uv
+**Target Platform**: biblioteca Python consumida em containers Linux (ECS) e Lambda
 
-**Project Type**: biblioteca compartilhada (single project) dentro do monorepo — consumida via
-workspace `uv` por todos os demais serviços
+**Project Type**: biblioteca compartilhada (single project) via workspace `uv`
 
-**Performance Goals**: N/A — chamadas em processo (funções puras, wrappers síncronos), sem
-orçamento de latência próprio; latência de I/O é dominada pelo Ministack/SQS/DynamoDB, fora do
-escopo desta biblioteca
+**Performance Goals**: N/A — funções puras + wrappers síncronos, sem orçamento de latência próprio
 
-**Constraints**: local-first (Ministack, constitution I.6); nenhuma dependência nova fora da stack
-da constitution seção II (YAGNI); nenhum valor de infraestrutura hardcoded (constitution IV)
+**Constraints**: local-first (Ministack); nenhuma dependência nova fora da stack; nenhum valor de
+infraestrutura hardcoded; nomes/estados/layout devem bater exatamente com
+`docs/01-dominio-e-contratos.md`
 
-**Scale/Scope**: consumida por 6 serviços (api-gateway, order-processor, order-validator,
-pdf-generator, file-consumer, lambda-line-processor); volume de chamadas dominado pelo volume de
-pedidos do sistema, não é um gargalo isolado
+**Scale/Scope**: consumida por 6 serviços; volume de chamadas dominado pelo volume de pedidos
 
 ## Constitution Check
 
@@ -50,18 +45,19 @@ pedidos do sistema, não é um gargalo isolado
 
 | Gate (constitution) | Status | Nota |
 |---|---|---|
-| I.1 Event-driven, sem HTTP entre serviços | PASS | Pacote não expõe HTTP; clientes SQS/DynamoDB/S3 apenas |
-| I.2 Máquina de estados explícita | PASS | `StatusPedido` + `is_valid_transition()` são a única fonte de verdade (data-model.md) |
-| I.3 Idempotência obrigatória | PASS (habilita) | Pacote fornece o enum/estado que consumidores usam em `ConditionExpression`; a idempotência do consumo em si é responsabilidade de cada serviço consumidor, fora do escopo desta feature |
-| I.4 Toda fila tem DLQ | N/A nesta feature | Criação de fila/DLQ é `infra/bootstrap/`, não este pacote |
-| I.5 Falha é dado | PASS | `Pedido.status_reason` modelado; exceções de domínio (`LinhaCurtaError`) em vez de genéricas |
-| I.6 Local-first | PASS | `Settings.ministack_endpoint_url` único ponto de configuração de endpoint |
-| II Stack obrigatória | PASS | Só usa Pydantic v2 + boto3, já mandatados; nenhuma lib nova |
+| I.1 Event-driven, sem HTTP entre serviços | PASS | Só clientes SQS/DynamoDB/S3 |
+| I.2 Máquina de estados explícita | PASS | `OrderStatus` + `is_valid_transition()` (data-model.md) |
+| I.3 Idempotência obrigatória | PASS | `mark_message_processed` implementa o mecanismo (research.md #4) |
+| I.4 Toda fila tem DLQ | N/A nesta feature | Criação de fila é `002-infraestrutura-local` |
+| I.5 Falha é dado | PASS | `Order.status_reason`; exceções de domínio no parser |
+| I.6 Local-first | PASS | `Settings.aws_endpoint_url` único ponto de configuração |
+| II Stack obrigatória | PASS | Só Pydantic v2 + boto3 |
 | III Contratos só em `shared/pedidos_shared` | PASS (é o objeto desta feature) | — |
-| IV Sem infra hardcoded / logs JSON / type hints / `/health` | PASS exceto `/health` | `/health` é responsabilidade de cada serviço (thread HTTP própria), não da biblioteca — N/A aqui |
-| VIII Design de código (funções puras, DI explícita, sem God class) | PASS | `is_valid_transition`, `mask_document`, `parse_fixed_width` são funções puras; clientes recebem `Settings` por construtor |
+| IV Sem infra hardcoded / logs JSON / type hints | PASS | `/health` N/A (biblioteca, não serviço) |
+| VIII Design de código | PASS | Funções puras (`is_valid_transition`, `mask_document`,
+  `mark_message_processed`, parser); DI explícita nos clientes |
 
-Nenhuma violação a justificar — Complexity Tracking fica vazio.
+Nenhuma violação a justificar.
 
 ## Project Structure
 
@@ -69,13 +65,13 @@ Nenhuma violação a justificar — Complexity Tracking fica vazio.
 
 ```text
 specs/001-fundacao-compartilhada/
-├── plan.md              # Este arquivo
-├── research.md           # Fase 0
-├── data-model.md          # Fase 1
-├── quickstart.md           # Fase 1
-├── contracts/                # Fase 1
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
 │   └── pedidos_shared-api.md
-└── tasks.md                   # Fase 2 (/speckit-tasks, ainda não gerado)
+└── tasks.md
 ```
 
 ### Source Code (repository root)
@@ -87,35 +83,37 @@ shared/
     ├── src/
     │   └── pedidos_shared/
     │       ├── __init__.py
-    │       ├── models.py        # Pedido, ItemPedido, contratos de mensagem (Pydantic)
-    │       ├── status.py         # StatusPedido, is_valid_transition
-    │       ├── settings.py        # Settings (Pydantic)
-    │       ├── masking.py          # mask_document
-    │       ├── logging.py           # get_logger, JsonFormatter
-    │       ├── parsing.py            # FieldSpec, parse_fixed_width, LinhaCurtaError
+    │       ├── models.py         # Order, OrderItem, MessageEnvelope
+    │       ├── status.py          # OrderStatus, is_valid_transition
+    │       ├── settings.py         # Settings (Pydantic)
+    │       ├── idempotency.py       # mark_message_processed
+    │       ├── masking.py            # mask_document
+    │       ├── logging.py             # get_logger, JsonFormatter
+    │       ├── file_layout.py          # parse_file + exceções de domínio
     │       └── clients/
     │           ├── __init__.py
     │           ├── sqs.py
     │           ├── dynamodb.py
     │           └── s3.py
     └── tests/
+        ├── fixtures/
+        │   └── exemplo.txt          # arquivo posicional de exemplo (§6.9)
         ├── test_models.py
         ├── test_status.py
         ├── test_settings.py
+        ├── test_idempotency.py
         ├── test_masking.py
         ├── test_logging.py
-        ├── test_parsing.py
+        ├── test_file_layout.py
         └── clients/
-            └── test_sqs.py       # contra Ministack (integração)
+            └── test_sqs.py          # contra Ministack (integração)
 ```
 
-**Structure Decision**: biblioteca única em `shared/pedidos_shared/`, layout `src/` conforme a
-estrutura do monorepo definida na constitution seção III/VIII. Sem `handlers/`, `domain/` ou
-`adapters/` separados — essa subdivisão de seção VIII é para *serviços* (que têm handlers de
-fila); aqui `status.py`, `masking.py` e `parsing.py` já são o equivalente a `domain/` (funções
-puras, sem I/O) e `clients/` é o equivalente a `adapters/` (integração externa via boto3),
-mantendo a mesma separação de responsabilidades da constitution sem repetir os nomes de pasta
-genéricos de um serviço que não existe aqui.
+**Structure Decision**: biblioteca única em `shared/pedidos_shared/`, layout `src/`. `status.py`,
+`masking.py`, `file_layout.py` e `idempotency.py` (lógica condicional pura antes da chamada boto3)
+equivalem ao `domain/` da constitution VIII; `clients/` equivale a `adapters/`. Sem
+`handlers/`/`domain/`/`adapters/` nomeados literalmente porque essa subdivisão é para *serviços*
+com handlers de fila — esta é uma biblioteca, não um serviço.
 
 ## Complexity Tracking
 

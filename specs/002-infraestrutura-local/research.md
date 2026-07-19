@@ -1,66 +1,78 @@
 # Research: Infraestrutura Local (Ministack)
 
-**Feature**: [spec.md](./spec.md) | **Date**: 2026-07-18
+**Feature**: [spec.md](./spec.md) | **Date**: 2026-07-18 (revisado)
 
-Nenhum `NEEDS CLARIFICATION` restou no Technical Context. As decisões abaixo cobrem as escolhas
-de implementação que a constitution deixa em aberto (seção II lista "boto3 ou awslocal CLI").
+## 1. boto3 vs awslocal CLI
 
-## 1. boto3 vs awslocal CLI para os scripts de bootstrap
+**Decision**: `boto3` puro em Python, mesma lib de `pedidos_shared`.
 
-**Decision**: `boto3` puro em scripts Python, mesma lib já usada em `pedidos_shared` (feature 001).
+**Rationale**: sem dependência nova, roda via `uv run` como qualquer outro script do repo.
 
-**Rationale**: Evita depender de um binário externo (`awslocal`) instalado separadamente na
-máquina do desenvolvedor; `boto3` já é dependência obrigatória da stack (constitution II) e roda
-via `uv run` igual a qualquer outro script Python do repo, sem ferramenta nova.
+**Alternatives considered**: `awslocal` CLI — rejeitado, exige instalação adicional.
 
-**Alternatives considered**: `awslocal` CLI (wrapper de shell sobre `aws` CLI) — rejeitado, exige
-instalação adicional (CLI da AWS + awslocal) fora do que `uv sync` já resolve; sem ganho sobre
-boto3 para o volume de recursos desta feature (poucas filas, uma tabela, um bucket).
+## 2. Fonte única de nomes de recurso
 
-## 2. Fonte única de verdade pros nomes de recursos (evitar deriva)
+**Decision**: `.env.example` na raiz do repo, usando as variáveis nativas que o Ministack já
+reconhece (`AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` —
+docs/01-dominio-e-contratos.md §8) mais uma variável por tabela/bucket/fila. Bootstrap e
+`pedidos_shared.Settings` leem exatamente as mesmas variáveis.
 
-**Decision**: Um arquivo `.env.example` na raiz do repo lista todos os nomes de fila/tabela/bucket
-e o endpoint do Ministack. O bootstrap lê essas variáveis de ambiente (já carregadas pelo
-`docker-compose` via `env_file` ou exportadas pelo desenvolvedor a partir de uma cópia local
-`.env`) e cria os recursos com exatamente esses nomes; cada serviço (via `Settings` de
-`pedidos_shared`) lê as mesmas variáveis.
+**Rationale**: resolve FR-007 sem duplicar nomes; `AWS_*` (em vez de `MINISTACK_*`, decisão da
+versão anterior desta spec) porque é o que o próprio Ministack e o boto3 já esperam nativamente —
+menos tradução, menos chance de erro.
 
-**Rationale**: Resolve FR-006/FR-007 (nomes do bootstrap MUST bater com o que os serviços esperam)
-sem duplicar a lista de nomes em dois lugares do código — um único arquivo é a fonte de verdade,
-lido tanto pelo bootstrap quanto por cada serviço.
+**Alternatives considered**: prefixo `MINISTACK_` custom (decisão anterior) — descartado, o
+Ministack não usa esse prefixo; manter teria exigido uma camada de tradução sem propósito.
 
-**Alternatives considered**: Hardcodar os nomes dentro do próprio script de bootstrap e replicar os
-mesmos valores manualmente na documentação de cada serviço — rejeitado, é exatamente a deriva que
-FR-006 existe para evitar; viola constitution IV (nenhum valor de infraestrutura hardcoded).
+## 3. Idempotência de criação de recurso
 
-## 3. Idempotência de criação de recurso (SQS/DynamoDB/S3)
+**Decision**: função "criar ou verificar" por tipo de recurso, captura exceção boto3 de "já
+existe" e trata como sucesso; drift de configuração vira log de aviso estruturado, não falha.
 
-**Decision**: Uma função "criar ou verificar" por tipo de recurso, que captura a exceção boto3 de
-"já existe" (`QueueNameExists`, `ResourceInUseException`, `BucketAlreadyOwnedByYou`) e trata como
-sucesso; se o recurso existente não tiver a configuração esperada (ex: fila sem redrive policy),
-loga um aviso estruturado em vez de falhar silenciosamente ou de tentar recriar.
+**Rationale**: FR-006; constitution I.5 "falha é dado".
 
-**Rationale**: Atende FR-005 (idempotência) e ao princípio "falha é dado, não exceção silenciosa"
-(constitution I.5) — drift de configuração vira log visível, não um erro que trava o bootstrap nem
-um estado inconsistente ignorado.
+**Alternatives considered**: apagar e recriar a cada execução — rejeitado, destrutivo.
 
-**Alternatives considered**: Apagar e recriar o recurso a cada execução do bootstrap — rejeitado,
-destrutivo (perderia dados de teste do desenvolvedor entre execuções) e desnecessário pra atingir
-idempotência.
+## 4. Ordem de subida e disparo automático
 
-## 4. Ordem de subida (Ministack pronto antes do bootstrap) e disparo automático
+**Decision**: bootstrap como serviço one-shot do `docker-compose.yml`
+(`depends_on: ministack: condition: service_healthy`) + retry curto no próprio script como defesa
+extra.
 
-**Decision**: O bootstrap roda como um serviço one-shot do próprio `docker-compose.yml`
-(`depends_on: ministack: condition: service_healthy`), disparado automaticamente por
-`docker-compose up` (ver Clarifications em spec.md). Como defesa extra além do `depends_on`, o
-script de bootstrap também faz um retry curto (poucas tentativas, backoff simples) ao conectar.
+**Rationale**: `depends_on` nativo do Compose; retry cobre o caso raro de healthcheck reportar
+saudável um instante antes da API aceitar conexões de fato.
 
-**Rationale**: `depends_on` com `condition: service_healthy` é o mecanismo nativo do Docker Compose
-pra isso — nenhum orquestrador externo necessário. O retry no próprio script cobre o caso raro de
-o healthcheck reportar saudável um instante antes da API do Ministack aceitar conexões de fato.
-Resolve tanto o edge case de corrida na subida quanto a exigência de FR-001/FR-007 de um único
-comando sem passo manual.
+**Alternatives considered**: bootstrap manual separado — revertido na clarificação da spec
+(SC-001 exige comando único).
 
-**Alternatives considered**: Bootstrap como comando manual separado — era a decisão original desta
-pesquisa, revertida após a clarificação da spec (SC-001 exige um único comando); manter como estava
-teria deixado research.md e spec.md inconsistentes.
+## 5. Notificação de evento do bucket S3 (novo — pós docs/01-dominio-e-contratos.md)
+
+**Decision**: configurar a notificação (`put_bucket_notification_configuration`) como parte da
+função "criar ou verificar" do bucket, comparando a configuração existente com a esperada
+(prefixo `uploads/`, sufixo `.txt`, destino `s3_notifications_queue`) antes de escrever; se já
+existir configuração igual, não reescreve (evita reset de outras regras); se existir configuração
+divergente, loga aviso e não sobrescreve automaticamente (mesma política de drift da decisão #3).
+
+**Rationale**: FR-005/FR-006; `put_bucket_notification_configuration` do S3 é uma operação PUT
+completa (substitui toda a config de notificação do bucket) — reescrever incondicionalmente a cada
+bootstrap arriscaria apagar outras regras que alguém tenha adicionado manualmente; comparar antes
+de escrever preserva a idempotência sem esse risco.
+
+**Alternatives considered**: sempre sobrescrever a notificação a cada bootstrap — rejeitado, viola
+a mesma cautela de drift já adotada pra filas/tabelas (decisão #3); reescrever sem checar poderia
+mascarar uma mudança manual investigável.
+
+## 6. Duas tabelas DynamoDB (`orders` com GSIs, `processed_messages` com TTL)
+
+**Decision**: duas funções de criação separadas — `create_or_verify_orders_table` (PK/SK + GSI1 +
+GSI2, todos como parte da definição inicial da tabela, já que GSIs do DynamoDB não podem ser
+adicionados via update no Ministack de forma simples) e `create_or_verify_processed_messages_table`
+(PK simples + `TimeToLiveSpecification` habilitada em `ttl`).
+
+**Rationale**: refletem exatamente §3; funções separadas porque são schemas completamente
+diferentes (uma tem 2 GSIs, a outra é PK simples com TTL) — uma função genérica "criar tabela"
+teria que aceitar uma configuração tão flexível que perderia a clareza de ter uma função por
+responsabilidade (constitution VIII).
+
+**Alternatives considered**: uma função `create_or_verify_table(name, schema)` genérica — rejeitado
+aqui; só há 2 tabelas no domínio inteiro, generalizar agora é complexidade sem uso (YAGNI).

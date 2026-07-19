@@ -2,32 +2,62 @@
 
 **Feature**: [spec.md](./spec.md) | **Research**: [research.md](./research.md)
 
-Não há entidade de domínio (Pedido, etc.) nesta feature — o "modelo de dados" aqui é o conjunto de
-recursos de infraestrutura que o bootstrap cria e sua fonte de nomes.
+Todo nome/config abaixo é copiado de `docs/01-dominio-e-contratos.md` §3, §4, §7, §8.
 
-## Recursos criados pelo bootstrap (versão inicial — ver Assumptions em spec.md)
+## Filas SQS (9 + suas DLQs)
 
-| Recurso | Nome (env var) | Configuração |
+| Fila | Produtor | Consumidor |
 |---|---|---|
-| Fila SQS (exemplo, usada pelo teste de integração de `pedidos_shared`) | `PEDIDO_SOLICITADO_QUEUE_URL` (nome base: `pedido-solicitado`) | DLQ associada `pedido-solicitado-dlq`, redrive policy `maxReceiveCount = 3` |
-| DLQ da fila acima | `pedido-solicitado-dlq` (sem env var própria — resolvida via redrive policy da fila principal) | Sem redrive policy própria (fila terminal) |
-| Tabela DynamoDB de pedidos | `ORDERS_TABLE_NAME` (valor: `orders`) | Chave primária `order_id` (string) |
-| Bucket S3 de PDFs | `ORDERS_BUCKET_NAME` (valor: `orders-pdf`) | Sem versionamento (fora de escopo desta feature) |
+| `solicitar_pedido_queue` | API Gateway | Order Processor |
+| `editar_pedido_queue` | API Gateway | Order Processor |
+| `cancelar_pedido_queue` | API Gateway | Order Processor |
+| `validar_pedido_queue` | Order Processor | Order Validator |
+| `validar_pedido_response_queue` | Order Validator | Order Processor |
+| `pdf_request_queue` | Order Processor | PDF Generator |
+| `pdf_response_queue` | PDF Generator | Order Processor |
+| `s3_notifications_queue` | S3 (event notification) | File Consumer |
+| `pedido_lines_queue` | File Consumer | Lambda Line Processor |
 
-## Fonte única de nomes
+Todas: `visibility_timeout = 60s`, `message_retention = 4 dias`, DLQ `{nome}_dlq`,
+`maxReceiveCount = 3`.
 
-`.env.example` (raiz do repo) — ver research.md #2. Campos:
+## Tabela `orders`
 
-| Variável | Exemplo de valor | Consumida por |
+| Atributo | Papel |
+|---|---|
+| `PK` = `ORDER#{order_id}` | partition key |
+| `SK` = `METADATA` | sort key |
+| `GSI1PK` = `CUSTOMER#{customer_id}`, `GSI1SK` = `{created_at}#{order_id}` | consulta por cliente |
+| `GSI2PK` = `STATUS#{status}`, `GSI2SK` = `{created_at}#{order_id}` | consulta por status |
+
+## Tabela `processed_messages`
+
+| Atributo | Papel |
+|---|---|
+| `PK` = `MSG#{message_id}` | partition key |
+| `consumer`, `processed_at` | metadados |
+| `ttl` | TTL nativo, expiração em 7 dias |
+
+## Bucket `pedidos-bucket`
+
+- Prefixo `uploads/` — arquivos posicionais enviados; evento `s3:ObjectCreated:*` (prefixo
+  `uploads/`, sufixo `.txt`) → `s3_notifications_queue`.
+- Prefixo `invoices/YYYY/MM/DD/{order_id}.pdf` — notas fiscais geradas.
+
+## Fonte única de nomes (`.env.example`, raiz do repo)
+
+| Variável | Valor de exemplo | Consumida por |
 |---|---|---|
-| `MINISTACK_ENDPOINT_URL` | `http://localhost:4566` | bootstrap, `Settings` de todo serviço |
-| `AWS_REGION` | `us-east-1` | bootstrap, `Settings` de todo serviço |
+| `AWS_ENDPOINT_URL` | `http://localhost:4566` | bootstrap, `Settings` |
+| `AWS_REGION` | `us-east-1` | bootstrap, `Settings` |
+| `AWS_ACCESS_KEY_ID` | `test` | bootstrap, `Settings` |
+| `AWS_SECRET_ACCESS_KEY` | `test` | bootstrap, `Settings` |
 | `ORDERS_TABLE_NAME` | `orders` | bootstrap, `Settings` |
-| `ORDERS_BUCKET_NAME` | `orders-pdf` | bootstrap, `Settings` |
-| `PEDIDO_SOLICITADO_QUEUE_URL` | `http://localhost:4566/000000000000/pedido-solicitado` | bootstrap, `Settings` |
+| `PROCESSED_MESSAGES_TABLE_NAME` | `processed_messages` | bootstrap, `Settings` |
+| `PEDIDOS_BUCKET_NAME` | `pedidos-bucket` | bootstrap, `Settings` |
+| `SOLICITAR_PEDIDO_QUEUE_URL` … `PEDIDO_LINES_QUEUE_URL` (9 variáveis, uma por fila) | `http://localhost:4566/000000000000/{fila}` | bootstrap, `Settings` |
 
 ## Estado de execução do bootstrap
 
-Não há estado persistido pelo próprio bootstrap (nenhum "banco de controle de execuções") — a
-idempotência (research.md #3) é obtida checando o estado real do Ministack a cada execução, não um
-registro próprio de "já rodei antes".
+Nenhum estado próprio persistido — idempotência obtida checando o estado real do Ministack a cada
+execução (research.md #3, #5).

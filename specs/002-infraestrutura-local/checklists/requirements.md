@@ -1,7 +1,7 @@
 # Specification Quality Checklist: Infraestrutura Local (Ministack)
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-07-18
+**Created**: 2026-07-18 | **Revised**: 2026-07-18 (rework pós-`docs/01-dominio-e-contratos.md`)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,11 +31,9 @@
 
 ## Notes
 
-- Assim como a feature 001, esta é uma feature de infraestrutura mandatada pela constitution
-  (seção II "IaC local" e seção I.6 "local-first"). Termos como "SQS", "DynamoDB", "S3" e
-  "Ministack" são o próprio vocabulário de negócio desta feature, já fixados pela constitution —
-  não são uma escolha de implementação feita nesta spec.
-- Escopo deliberadamente contido: o conjunto exato de filas do sistema fica para as specs de
-  serviço futuras (ver Assumptions); esta feature entrega só o motor de bootstrap + os recursos
-  mínimos que a feature 001 (`pedidos_shared`) já precisa pra rodar seu teste de integração.
-- Todos os itens passaram na primeira validação. Nenhuma iteração adicional necessária.
+- Nomes de fila/tabela/bucket e a configuração de notificação de evento vêm literalmente de
+  `docs/01-dominio-e-contratos.md` §3/§4/§7 — não são escolha desta spec.
+- O achado H1 do `/speckit-analyze` anterior ("FR-002 promete mais do que tasks.md entrega") não
+  se aplica mais: o conjunto completo de filas agora é conhecido e é exatamente o que é
+  especificado e implementado — não há mais lacuna entre promessa e entrega.
+- Todos os itens passaram na revalidação.

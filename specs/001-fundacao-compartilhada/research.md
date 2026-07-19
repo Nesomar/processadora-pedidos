@@ -1,94 +1,89 @@
 # Research: Fundação Compartilhada (pedidos_shared)
 
-**Feature**: [spec.md](./spec.md) | **Date**: 2026-07-18
+**Feature**: [spec.md](./spec.md) | **Date**: 2026-07-18 (revisado)
 
-Nenhum `NEEDS CLARIFICATION` restou no Technical Context (stack fixada pela constitution seção II).
-As decisões abaixo cobrem as escolhas de implementação não fixadas pela constitution nem pela spec.
+Nenhum `NEEDS CLARIFICATION` restou. As decisões abaixo cobrem escolhas de implementação não
+fixadas nem pela constitution nem por `docs/01-dominio-e-contratos.md`.
 
 ## 1. Logging estruturado JSON
 
-**Decision**: Usar `logging` da stdlib com um `logging.Formatter` customizado que serializa o
-record para JSON, injetando `orderId`/`correlationId` via `logging.LoggerAdapter` ou `extra=`.
+**Decision**: `logging` da stdlib + `Formatter` custom que serializa pra JSON, injetando
+`orderId`/`correlationId` via `extra=`.
 
-**Rationale**: A stack obrigatória (constitution seção II) não lista uma lib de logging estruturado
-(ex: `structlog`). A stdlib cobre o requisito (FR-007) sem dependência nova — YAGNI. `extra=` é o
-mecanismo padrão do `logging` pra campos customizados por chamada.
+**Rationale**: stack obrigatória não lista lib de log estruturado; stdlib resolve FR-009 sem
+dependência nova.
 
-**Alternatives considered**: `structlog` — rejeitado por não constar na stack obrigatória e por
-resolver um problema que a stdlib já resolve em ~30 linhas.
+**Alternatives considered**: `structlog` — rejeitado, fora da stack, resolve problema que a stdlib
+já resolve.
 
-## 2. Instalação do pacote como dependência local entre serviços
+## 2. Instalação local via workspace `uv`
 
-**Decision**: Workspace `uv` na raiz do monorepo (`[tool.uv.workspace] members = ["services/*",
-"shared/pedidos_shared"]`), com cada serviço declarando `pedidos_shared` como dependência de
-workspace (`pedidos-shared = { workspace = true }` no `pyproject.toml` do serviço).
+**Decision**: workspace `uv` na raiz (`members = ["services/*", "shared/pedidos_shared"]`).
 
-**Rationale**: `uv` suporta workspaces nativamente, resolvendo FR-009 (instalável localmente sem
-índice externo) sem symlink manual nem path relativo frágil. Um único lockfile de workspace mantém
-versões de dependências transitivas consistentes entre serviços.
+**Rationale**: resolve FR-013 sem symlink manual, lockfile único evita deriva de versão entre
+serviços.
 
-**Alternatives considered**: Path dependency direta (`pedidos-shared = { path = "../../shared/
-pedidos_shared" }`) sem workspace — funciona, mas perde o lock compartilhado e exige repetir a
-resolução de dependências transitivas em cada serviço; rejeitado por adicionar deriva de versão
-entre serviços sem ganho.
+**Alternatives considered**: path dependency direta sem workspace — perde lock compartilhado,
+rejeitada.
 
 ## 3. Clientes SQS/DynamoDB/S3
 
-**Decision**: Wrappers finos e síncronos sobre `boto3.client(...)`, um por serviço AWS
-(`SqsClient`, `DynamoDbClient`, `S3Client`), todos recebendo `Settings` no construtor e usando
-`Settings.ministack_endpoint_url` como `endpoint_url`.
+**Decision**: wrappers finos e síncronos sobre `boto3.client(...)` — `SqsClient`, `DynamoDbClient`,
+`S3Client` — recebendo `Settings` no construtor.
 
-**Rationale**: Constitution seção VIII: "async apenas onde há I/O concorrente real". Os workers
-(order-processor, order-validator, pdf-generator, file-consumer) consomem uma mensagem SQS por vez
-— não há concorrência real a explorar aqui. `boto3` síncrono é a opção mais simples que atende
-FR-006.
+**Rationale**: constitution VIII, "async só onde há I/O concorrente real"; workers consomem uma
+mensagem por vez.
 
-**Alternatives considered**: `aioboto3` — rejeitado, adiciona dependência e complexidade async sem
-ganho de throughput no padrão de consumo atual (um a um).
+**Alternatives considered**: `aioboto3` — rejeitado, sem ganho no padrão de consumo atual.
 
-## 4. Mascaramento de documento
+## 4. Idempotência — `mark_message_processed`
 
-**Decision**: Função pura `mask_document(document: str) -> str` que preserva os últimos 4
-caracteres e substitui todos os anteriores por `*`, mantendo o comprimento original. Para
-documentos com 4 caracteres ou menos, mascara integralmente (nenhum dígito real exposto).
+**Decision**: `mark_message_processed(message_id, consumer) -> bool` grava em
+`processed_messages` com `ConditionExpression=attribute_not_exists(PK)`; se a condição falhar
+(`ConditionalCheckFailedException`), retorna `True` ("já processado"); se gravar com sucesso,
+retorna `False` ("processar agora"). TTL de 7 dias no atributo `ttl` (epoch), nativo do DynamoDB —
+nenhuma limpeza própria.
 
-**Rationale**: Resolve a clarificação da spec ("últimos 4 dígitos visíveis") de forma determinística
-e cobre o caso extremo (documento muito curto) sem expor 100% de um documento pequeno.
+**Rationale**: implementa exatamente §3 de `docs/01-dominio-e-contratos.md` com uma única operação
+atômica (write condicional), sem race condition entre "checar" e "marcar".
 
-**Alternatives considered**: Mascaramento fixo por tipo de documento (CPF vs CNPJ) com máscara
-posicional (`***.***.***-XX`) — rejeitado nesta feature por acoplar a função genérica de
-mascaramento a um formato de documento específico; a formatação posicional por tipo, se necessária,
-é responsabilidade do serviço chamador, não do pacote compartilhado.
+**Alternatives considered**: `get_item` seguido de `put_item` (check-then-act) — rejeitado, tem
+race condition entre as duas chamadas; o `ConditionExpression` resolve isso numa única chamada.
 
-## 5. Transições válidas do enum StatusPedido
+## 5. Transições válidas de `OrderStatus`
 
-**Decision**: Grafo de transição único, validado por uma função pura `is_valid_transition(current:
-StatusPedido, next: StatusPedido) -> bool`:
+**Decision**: `is_valid_transition(current, next) -> bool` codifica a tabela de §2.3 como um
+dicionário `{estado_atual: {estados_destino_válidos}}`, incluindo a regra "qualquer não-terminal →
+FAILED" e as regras de cancelamento/edição que saem de múltiplos estados de origem.
 
-```
-RECEBIDO      → VALIDANDO
-VALIDANDO     → VALIDADO | REJEITADO
-VALIDADO      → GERANDO_PDF
-GERANDO_PDF   → CONCLUIDO
-{qualquer}    → ERRO
-```
+**Rationale**: fonte única de verdade sobre transição, testável exaustivamente contra a tabela do
+documento de domínio.
 
-**Rationale**: FR-002/FR-003 exigem um único enum e um único lugar de verdade; a função de
-transição válida evita que cada serviço reimplemente sua própria lógica de "quais transições fazem
-sentido", fechando a lacuna do FR-010 (teste das transições válidas).
+**Alternatives considered**: cada serviço decidir localmente — rejeitado, viola constitution I.2.
 
-**Alternatives considered**: Deixar cada serviço decidir localmente quais transições aceita —
-rejeitado, viola constitution I.2 (máquina de estados explícita e única).
+## 6. Mascaramento de documento
 
-## 6. Parser de arquivo posicional
+**Decision**: `mask_document(document: str) -> str` preserva os últimos 4 caracteres, mascara o
+resto; documentos com ≤4 caracteres são mascarados integralmente.
 
-**Decision**: Função `parse_fixed_width(line: str, layout: list[FieldSpec]) -> dict[str, str]`
-genérica e sem estado, onde `FieldSpec` (start, end, nome) é fornecido pelo chamador — o pacote não
-fixa um layout específico de arquivo de pedido.
+**Rationale**: FR-011; comportamento determinístico e testável no caso extremo.
 
-**Rationale**: A spec (Assumptions) explicitamente deixa o layout concreto do arquivo de pedidos
-para a spec do fluxo de arquivo (file-consumer/lambda-line-processor). O pacote compartilhado só
-precisa fornecer o motor de parsing reutilizável (FR-008), não o layout.
+**Alternatives considered**: máscara posicional por tipo de documento (CPF vs CNPJ) — rejeitado,
+acopla a função genérica a um formato específico; formatação de exibição é responsabilidade do
+serviço chamador.
 
-**Alternatives considered**: Fixar já um layout de pedido no pacote — rejeitado, pois o layout real
-ainda não foi especificado (spec futura), e fixá-lo aqui criaria acoplamento prematuro.
+## 7. Parser do layout posicional
+
+**Decision**: parser dedicado ao layout de §6 (não um motor genérico) — dispatch por
+`record_type` (`0`=header, `1`=detalhe-pedido, `2`=detalhe-item, `9`=trailer), com as 5 regras de
+"Regras de parsing" implementadas como validações explícitas e erros de domínio próprios
+(`ArquivoInvalidoError` pro arquivo inteiro, `LinhaInvalidaError` por linha, `PedidoInvalidoError`
+por pedido com `item_count` divergente).
+
+**Rationale**: o layout já é conhecido e fixo (não mais um placeholder a definir por spec futura)
+— um parser dedicado ao layout real é mais simples e direto que um motor genérico configurável que
+ninguém mais vai configurar diferente.
+
+**Alternatives considered**: motor `parse_fixed_width(line, layout)` genérico (decisão da versão
+anterior desta spec) — descartado; o layout do domínio já existe e é único, generalizar antes de
+precisar é complexidade sem uso.

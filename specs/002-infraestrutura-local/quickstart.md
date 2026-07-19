@@ -9,28 +9,24 @@
 
 ## Subir o ambiente já populado (User Story 1 + User Story 2)
 
-Cópia do `.env` é feita uma única vez (não repete a cada subida):
-
 ```bash
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
+# ou: make up
 ```
 
-**Esperado**: o Ministack fica saudável em poucos segundos (`docker compose ps` mostra o serviço
-`ministack` `healthy`); o serviço `bootstrap` dispara automaticamente logo depois, roda e sai
-(`docker compose ps` mostra `bootstrap` como `exited (0)`) — nenhum segundo comando necessário.
-Validar os recursos diretamente:
+**Esperado**: `ministack` fica `healthy`; `bootstrap` dispara automaticamente, roda e sai
+(`exited (0)`). Validar os recursos:
 
 ```bash
-aws --endpoint-url $MINISTACK_ENDPOINT_URL sqs list-queues
-aws --endpoint-url $MINISTACK_ENDPOINT_URL dynamodb list-tables
-aws --endpoint-url $MINISTACK_ENDPOINT_URL s3 ls
+aws --endpoint-url $AWS_ENDPOINT_URL sqs list-queues
+aws --endpoint-url $AWS_ENDPOINT_URL dynamodb list-tables
+aws --endpoint-url $AWS_ENDPOINT_URL s3 ls
+aws --endpoint-url $AWS_ENDPOINT_URL s3api get-bucket-notification-configuration --bucket pedidos-bucket
 ```
 
-**Nota**: o valor de `PEDIDO_SOLICITADO_QUEUE_URL` em `.env.example` assume o account-id simulado
-padrão do Ministack (`000000000000`). Depois do primeiro `docker compose up`, confirme a URL real
-com `aws --endpoint-url $MINISTACK_ENDPOINT_URL sqs get-queue-url --queue-name pedido-solicitado`
-e ajuste seu `.env` local se divergir.
+**Esperado**: 9 filas (+9 DLQs), tabelas `orders` e `processed_messages`, bucket `pedidos-bucket`
+com notificação apontando pra `s3_notifications_queue`.
 
 ## Validar idempotência (User Story 3)
 
@@ -38,21 +34,34 @@ e ajuste seu `.env` local se divergir.
 docker compose -f infra/docker-compose.yml up -d
 ```
 
-**Esperado**: o serviço `bootstrap` roda de novo automaticamente (restart do compose) sem erro;
-`list-queues`/`list-tables`/`s3 ls` mostram exatamente os mesmos recursos de antes (nenhuma
-duplicata). Alternativa pra rodar só o bootstrap manualmente, sem reiniciar o Ministack:
+**Esperado**: `bootstrap` roda de novo sem erro; contagem de filas/tabelas/bucket e a notificação
+de evento permanecem iguais.
+
+## Validar upload de arquivo → notificação (SC-005)
 
 ```bash
-uv run --package infra-bootstrap python infra/bootstrap/main.py
+echo "conteúdo de teste" > /tmp/teste.txt
+aws --endpoint-url $AWS_ENDPOINT_URL s3 cp /tmp/teste.txt s3://pedidos-bucket/uploads/teste.txt
+aws --endpoint-url $AWS_ENDPOINT_URL sqs receive-message --queue-url $S3_NOTIFICATIONS_QUEUE_URL
 ```
 
-## Validar que um serviço consumidor funciona sem configuração manual (SC-004)
+**Esperado**: a mensagem de notificação do S3 aparece em `s3_notifications_queue`.
 
-Depois do ambiente subido e populado, rodar o teste de integração de `pedidos_shared`
-(feature 001, quickstart.md) sem nenhuma alteração de endpoint no código:
+## Validar que um serviço consumidor funciona sem configuração manual (SC-004)
 
 ```bash
 uv run --package pedidos-shared pytest shared/pedidos_shared/tests/clients/test_sqs.py -v
 ```
 
-**Esperado**: passa, usando só as variáveis de `.env` — nenhuma configuração adicional.
+**Esperado**: passa, usando só as variáveis de `.env`.
+
+## Atalhos de Makefile (User Story 4)
+
+```bash
+make up          # docker compose up -d
+make down         # docker compose down
+make bootstrap     # roda só o bootstrap manualmente (sem reiniciar o Ministack)
+make test            # pytest em todos os pacotes do workspace
+make e2e               # tests/e2e/
+make seed-file           # gera arquivo posicional de exemplo e faz upload em uploads/
+```

@@ -1,47 +1,42 @@
 # Implementation Plan: Infraestrutura Local (Ministack)
 
-**Branch**: `feature/002-infraestrutura-local` | **Date**: 2026-07-18 | **Spec**: [spec.md](./spec.md)
+**Branch**: `feature/002-infraestrutura-local` | **Date**: 2026-07-18 (revisado) | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/002-infraestrutura-local/spec.md`
+**Input**: Feature specification from `/specs/002-infraestrutura-local/spec.md`, realinhada a
+`docs/01-dominio-e-contratos.md`.
 
 ## Summary
 
-Fornecer `infra/docker-compose.yml` com dois serviços — Ministack e um serviço one-shot de
-bootstrap disparado automaticamente via `depends_on: condition: service_healthy` — e
-`infra/bootstrap/` (scripts Python idempotentes, boto3) que criam a fila de exemplo
-`pedido-solicitado` com sua DLQ (`maxReceiveCount=3`), a tabela DynamoDB `orders` e o bucket S3
-`orders-pdf`. Um `.env.example` na raiz do repo é a fonte única de nomes de recurso, lida tanto
-pelo bootstrap quanto por `Settings` de qualquer serviço (feature 001). Um único
-`docker-compose up` deixa o ambiente pronto, sem segundo comando manual (ver Clarifications em
-spec.md e research.md).
+`infra/docker-compose.yml` com dois serviços — `ministack` e um one-shot `bootstrap`
+(`depends_on: condition: service_healthy`) — e `infra/bootstrap/` (boto3, idempotente) criando: as
+9 filas de §4 (cada uma + DLQ, `maxReceiveCount=3`), a tabela `orders` (com `GSI1`/`GSI2`), a
+tabela `processed_messages` (com TTL), e o bucket `pedidos-bucket` (com notificação de evento
+`uploads/*.txt` → `s3_notifications_queue`). `.env.example` na raiz usa as variáveis nativas do
+Ministack (`AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) como
+fonte única, lida também por `Settings` de `pedidos_shared`. Um `Makefile` expõe os atalhos de §8.
 
 ## Technical Context
 
-**Language/Version**: Python 3.12 (scripts de bootstrap); Docker Compose (YAML) para o Ministack
+**Language/Version**: Python 3.12 (bootstrap); Docker Compose (YAML)
 
-**Primary Dependencies**: boto3 (já mandatado pela constitution II); sem dependência nova
-(research.md #1 rejeita `awslocal` CLI)
+**Primary Dependencies**: boto3; sem dependência nova (research.md #1)
 
-**Storage**: N/A — o bootstrap cria recursos em SQS/DynamoDB/S3 do Ministack; nenhum estado
-próprio persistido (data-model.md)
+**Storage**: N/A — bootstrap cria recursos no Ministack, sem estado próprio
 
-**Testing**: pytest — teste de idempotência do bootstrap (rodar duas vezes, comparar estado)
-rodando contra Ministack real; não há caminho de unit test isolado significativo (é
-essencialmente um script de integração)
+**Testing**: pytest — idempotência (rodar 2x, comparar estado) e notificação de evento do bucket,
+contra Ministack real
 
-**Target Platform**: Docker (container Linux do Ministack) + máquina do desenvolvedor rodando
-`docker compose` e `uv run` (qualquer SO com Docker + Python 3.12)
+**Target Platform**: Docker (Ministack) + máquina do desenvolvedor (`docker compose`, `uv run`,
+`make`)
 
-**Project Type**: ferramenta de infraestrutura (script + compose), não um serviço com `/health`
+**Project Type**: ferramenta de infraestrutura
 
-**Performance Goals**: ambiente sobe e fica saudável "em poucos segundos" (spec SC-001) —
-sem orçamento de latência além disso
+**Performance Goals**: ambiente saudável "em poucos segundos" (SC-001)
 
-**Constraints**: local-first (constitution I.6); idempotência obrigatória (FR-005); nenhum nome
-de recurso duplicado entre bootstrap e serviços (FR-006/FR-007, research.md #2)
+**Constraints**: local-first; idempotência obrigatória (FR-006); nomes batendo com `Settings` de
+`pedidos_shared` (FR-007); GSIs da tabela `orders` só podem ser definidos na criação (research.md #6)
 
-**Scale/Scope**: ambiente de um único desenvolvedor local; não cobre ambiente compartilhado
-multi-desenvolvedor nem produção
+**Scale/Scope**: ambiente de um único desenvolvedor local
 
 ## Constitution Check
 
@@ -49,17 +44,17 @@ multi-desenvolvedor nem produção
 
 | Gate (constitution) | Status | Nota |
 |---|---|---|
-| I.4 Toda fila tem DLQ, `maxReceiveCount=3` | PASS | É o objeto central desta feature (data-model.md, contracts/) |
-| I.5 Falha é dado | PASS | Drift de recurso existente vira log de aviso, não erro silencioso (research.md #3) |
-| I.6 Local-first | PASS | É a implementação direta deste princípio |
-| II Stack obrigatória (boto3, IaC local em `infra/bootstrap/`) | PASS | research.md #1 |
-| III Contratos só em `shared/pedidos_shared` | N/A | Esta feature não define contrato de mensagem, só nomes de recurso de infra |
-| IV Nenhum valor de infraestrutura hardcoded | PASS | `.env.example` como fonte única (research.md #2) |
-| IV Cada serviço expõe `/health` | N/A | Não é um serviço; é tooling de infra |
-| VIII Design de código (funções puras, sem God class) | PASS | Uma função "criar ou verificar" por tipo de recurso (SQS/DynamoDB/S3), sem classe acumulando responsabilidades |
-| IX Definição de pronto (sobe via docker-compose sem config manual) | PASS (habilita) | Esta feature é o que torna IX possível pras demais features |
+| I.4 Toda fila tem DLQ, `maxReceiveCount=3` | PASS | 9 filas, todas com DLQ (data-model.md) |
+| I.5 Falha é dado | PASS | Drift vira log de aviso (research.md #3, #5) |
+| I.6 Local-first | PASS | Implementação direta do princípio |
+| II Stack obrigatória | PASS | boto3, `infra/bootstrap/` (research.md #1) |
+| III Contratos só em `shared/pedidos_shared` | N/A | Esta feature só cria infra, não contrato de mensagem |
+| IV Nenhum valor hardcoded | PASS | `.env.example` fonte única (research.md #2) |
+| IV `/health` por serviço | N/A | Não é serviço |
+| VIII Design de código | PASS | Uma função por tipo de recurso (research.md #6), sem God class |
+| IX Definição de pronto | PASS (habilita) | Esta feature torna IX possível pras demais |
 
-Nenhuma violação a justificar — Complexity Tracking fica vazio.
+Nenhuma violação a justificar.
 
 ## Project Structure
 
@@ -79,30 +74,30 @@ specs/002-infraestrutura-local/
 ### Source Code (repository root)
 
 ```text
-.env.example                    # fonte única de nomes de recurso (research.md #2)
+.env.example
+Makefile                          # up, down, bootstrap, test, e2e, seed-file (§8)
 infra/
-├── docker-compose.yml           # serviço `ministack` + serviço one-shot `bootstrap`
-│                                  # (depends_on: ministack: condition: service_healthy)
+├── docker-compose.yml             # `ministack` + one-shot `bootstrap`
 └── bootstrap/
     ├── pyproject.toml
-    ├── main.py                   # composition root: lê env, chama create_or_verify_*
+    ├── main.py                     # composition root
     ├── resources/
     │   ├── __init__.py
-    │   ├── queues.py               # create_or_verify_queue(name, dlq_name) -> str (URL)
-    │   ├── table.py                  # create_or_verify_table(name) -> None
-    │   └── bucket.py                   # create_or_verify_bucket(name) -> None
+    │   ├── queues.py                 # create_or_verify_queue(name, dlq_name) -> str, x9 no main.py
+    │   ├── orders_table.py             # create_or_verify_orders_table() -> None (PK/SK + GSI1 + GSI2)
+    │   ├── processed_messages_table.py   # create_or_verify_processed_messages_table() -> None (TTL)
+    │   └── bucket.py                       # create_or_verify_bucket() + notificação de evento
     └── tests/
-        └── test_idempotency.py          # roda bootstrap 2x contra Ministack, compara estado
+        ├── test_idempotency.py                # roda bootstrap 2x, compara estado
+        └── test_bucket_notification.py          # notificação criada e idempotente
 ```
 
-**Structure Decision**: `infra/bootstrap/` como um mini-pacote Python próprio (não uma dependência
-do workspace `pedidos_shared` — não há reuso de código entre os dois, são scripts de ciclo de vida
-diferente). `resources/` separa por tipo de recurso (um arquivo por responsabilidade, seguindo
-constitution VIII), cada um expondo uma função pura de "criar ou verificar" sem estado
-compartilhado entre eles; `main.py` é o único lugar que orquestra a ordem de criação e lê `Settings`
-de ambiente. O `docker-compose.yml` empacota `infra/bootstrap/` como imagem/serviço one-shot que
-roda `python main.py` e sai (sem processo residente), disparado automaticamente após o
-healthcheck do Ministack passar.
+**Structure Decision**: `infra/bootstrap/` mini-pacote Python próprio. `resources/` separado por
+tipo de recurso — `orders_table.py` e `processed_messages_table.py` são módulos distintos
+(research.md #6, schemas incompatíveis demais pra uma função genérica). `bucket.py` inclui a lógica
+de notificação de evento (mesma responsabilidade de "o bucket e sua config de evento", não vale
+separar em módulo próprio só por isso). `docker-compose.yml` empacota `infra/bootstrap/` como
+serviço one-shot.
 
 ## Complexity Tracking
 
