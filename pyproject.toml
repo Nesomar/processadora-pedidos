@@ -1,0 +1,5 @@
+[tool.uv.workspace]
+members = ["services/*", "shared/pedidos_shared"]
+
+[tool.uv]
+package = false
