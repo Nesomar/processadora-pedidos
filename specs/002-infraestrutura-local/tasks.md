@@ -121,7 +121,7 @@ SQS/DynamoDB/S3 e confirmar os 9+2+1 recursos com a configuração exata do dom�
 
 - [X] T022 [P] Escrever `infra/README.md` documentando as variáveis de `.env.example`, o comando `docker compose up` e os alvos do `Makefile` (constitution IX / FR-009)
 - [X] T023 Rodar `ruff check`/`ruff format --check` em `infra/bootstrap/`
-- [X] T024 Rodar os cenários de `quickstart.md` ponta a ponta, incluindo o teste de integração de `pedidos_shared` (SC-004) e o upload → notificação (SC-005) — SC-005 validado manualmente (seed-file → s3_notifications_queue); SC-004 fica pendente até a feature 001 ser mergeada nesta branch
+- [X] T024 Rodar os cenários de `quickstart.md` ponta a ponta, incluindo o teste de integração de `pedidos_shared` (SC-004) e o upload → notificação (SC-005) — SC-005 validado manualmente (seed-file → s3_notifications_queue); SC-004 validado após merge de develop nesta branch: shared/pedidos_shared/tests/clients/test_sqs.py passou contra Ministack real
 - [X] T025 [P] Executar o code review da constitution seção VII antes de abrir o PR
 
 ---
