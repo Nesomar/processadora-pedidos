@@ -38,6 +38,7 @@ def settings() -> Settings:
             "PROCESSED_MESSAGES_TABLE_NAME", "processed_messages"
         ),
         solicitar_pedido_queue_url=os.environ.get("SOLICITAR_PEDIDO_QUEUE_URL"),
+        s3_notifications_queue_url=os.environ.get("S3_NOTIFICATIONS_QUEUE_URL"),
     )
 
 
@@ -87,3 +88,29 @@ def test_receive_with_receipt_returns_envelope_and_deletable_receipt(settings: S
 
     remaining = sqs.receive_with_receipt(settings.solicitar_pedido_queue_url)
     assert not any(env.message_id == envelope.message_id for env, _ in remaining)
+
+
+def test_send_raw_and_receive_raw_with_receipt_roundtrip(settings: Settings) -> None:
+    if not _ministack_available(settings):
+        pytest.skip("Ministack local indisponível (feature 002-infraestrutura-local)")
+    if not settings.s3_notifications_queue_url:
+        pytest.skip("S3_NOTIFICATIONS_QUEUE_URL não configurada")
+
+    sqs = SqsClient(settings)
+    marker = str(uuid4())
+    body = {"Records": [{"eventName": "ObjectCreated:Put", "marker": marker}]}
+
+    message_id = sqs.send_raw(settings.s3_notifications_queue_url, body)
+    assert message_id
+
+    received = sqs.receive_raw_with_receipt(settings.s3_notifications_queue_url)
+    match = next(
+        (item for item in received if item[0].get("Records", [{}])[0].get("marker") == marker),
+        None,
+    )
+    assert match is not None
+    received_body, receipt_handle, native_message_id = match
+    assert received_body == body
+    assert native_message_id
+
+    sqs.delete(settings.s3_notifications_queue_url, receipt_handle)

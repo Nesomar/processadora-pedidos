@@ -31,6 +31,8 @@ class ParsedOrder:
     customer_name: str
     customer_document: str
     item_count: int
+    line_number: int
+    raw_line: str
     items: list[ParsedItem] = field(default_factory=list)
 
 
@@ -42,6 +44,7 @@ class ParsedFile:
     total_orders: int
     total_items: int
     orders: list[ParsedOrder]
+    errors: list[Exception] = field(default_factory=list)
 
 
 def _parse_header(line: str) -> tuple[str, str, int]:
@@ -51,7 +54,7 @@ def _parse_header(line: str) -> tuple[str, str, int]:
     return file_date, origin_system, sequence
 
 
-def _parse_order(line: str) -> ParsedOrder:
+def _parse_order(line: str, line_number: int) -> ParsedOrder:
     operation = line[1:11].rstrip()
     order_id = line[11:47].strip() or None
     customer_id = line[47:67].rstrip()
@@ -68,6 +71,8 @@ def _parse_order(line: str) -> ParsedOrder:
         customer_name=customer_name,
         customer_document=customer_document,
         item_count=item_count,
+        line_number=line_number,
+        raw_line=line,
     )
 
 
@@ -86,59 +91,92 @@ def _parse_trailer(line: str) -> tuple[int, int]:
 def parse_file(lines: list[str]) -> ParsedFile:
     """Faz o parse de um arquivo posicional completo (linhas com `\\n` opcional).
 
-    Levanta `ArquivoInvalidoError`, `LinhaInvalidaError` ou `PedidoInvalidoError` conforme as 5
-    regras de parsing de §6.
+    Levanta `ArquivoInvalidoError` só para as condições que invalidam o arquivo inteiro (cabeçalho
+    ou rodapé ausente/inválido, contadores do rodapé divergentes da contagem bruta de registros
+    tipo `1`/`2` fisicamente encontrados). Linha com tamanho errado, item órfão e pedido com
+    `item_count` divergente NÃO abortam o parsing — são coletados em `ParsedFile.errors`
+    (`LinhaInvalidaError`/`PedidoInvalidoError`) e o processamento continua para o restante do
+    arquivo (docs/01-dominio-e-contratos.md §6).
     """
     rows = [raw.rstrip("\r\n") for raw in lines]
 
-    for row in rows:
-        if len(row) != _LINE_LENGTH:
-            raise LinhaInvalidaError(f"linha com {len(row)} caracteres (esperado {_LINE_LENGTH})")
-
-    if not rows or rows[0][0:1] != "0":
+    if not rows or len(rows[0]) != _LINE_LENGTH or rows[0][0:1] != "0":
         raise ArquivoInvalidoError("header ausente ou inválido")
-    if rows[-1][0:1] != "9":
+    if len(rows[-1]) != _LINE_LENGTH or rows[-1][0:1] != "9":
         raise ArquivoInvalidoError("trailer ausente ou inválido")
 
     file_date, origin_system, sequence = _parse_header(rows[0])
     total_orders, total_items = _parse_trailer(rows[-1])
 
     orders: list[ParsedOrder] = []
+    errors: list[Exception] = []
+    seen_orders = 0
+    seen_items = 0
     current_order: ParsedOrder | None = None
+    current_order_line: int | None = None
 
-    def finalize(order: ParsedOrder) -> None:
-        if len(order.items) != order.item_count:
-            raise PedidoInvalidoError(
-                f"pedido {order.order_id!r}: item_count={order.item_count} mas "
-                f"{len(order.items)} item(ns) encontrado(s)"
+    def finalize() -> None:
+        nonlocal current_order, current_order_line
+        if current_order is None:
+            return
+        if len(current_order.items) != current_order.item_count:
+            errors.append(
+                PedidoInvalidoError(
+                    f"linha {current_order_line}: pedido {current_order.order_id!r}: "
+                    f"item_count={current_order.item_count} mas "
+                    f"{len(current_order.items)} item(ns) encontrado(s)"
+                )
             )
-        orders.append(order)
+        else:
+            orders.append(current_order)
+        current_order = None
+        current_order_line = None
 
-    for row in rows[1:-1]:
+    for offset, row in enumerate(rows[1:-1], start=2):
         record_type = row[0:1]
+
+        if len(row) != _LINE_LENGTH:
+            errors.append(
+                LinhaInvalidaError(
+                    f"linha {offset}: {len(row)} caracteres (esperado {_LINE_LENGTH})"
+                )
+            )
+            if record_type == "1":
+                seen_orders += 1
+                finalize()
+            elif record_type == "2":
+                seen_items += 1
+            continue
+
         if record_type == "1":
-            if current_order is not None:
-                finalize(current_order)
-            current_order = _parse_order(row)
+            seen_orders += 1
+            finalize()
+            current_order = _parse_order(row, offset)
+            current_order_line = offset
         elif record_type == "2":
+            seen_items += 1
             if current_order is None:
-                raise LinhaInvalidaError("registro tipo 2 sem tipo 1 antecedente (item órfão)")
+                errors.append(
+                    LinhaInvalidaError(
+                        f"linha {offset}: registro tipo 2 sem tipo 1 antecedente (item órfão)"
+                    )
+                )
+                continue
             current_order.items.append(_parse_item(row))
         else:
-            raise LinhaInvalidaError(f"record_type desconhecido: {record_type!r}")
+            errors.append(
+                LinhaInvalidaError(f"linha {offset}: record_type desconhecido: {record_type!r}")
+            )
 
-    if current_order is not None:
-        finalize(current_order)
+    finalize()
 
-    if total_orders != len(orders):
+    if total_orders != seen_orders:
         raise ArquivoInvalidoError(
-            f"trailer indica total_orders={total_orders}, contado={len(orders)}"
+            f"trailer indica total_orders={total_orders}, contado={seen_orders}"
         )
-
-    counted_items = sum(len(order.items) for order in orders)
-    if total_items != counted_items:
+    if total_items != seen_items:
         raise ArquivoInvalidoError(
-            f"trailer indica total_items={total_items}, contado={counted_items}"
+            f"trailer indica total_items={total_items}, contado={seen_items}"
         )
 
     return ParsedFile(
@@ -148,4 +186,5 @@ def parse_file(lines: list[str]) -> ParsedFile:
         total_orders=total_orders,
         total_items=total_items,
         orders=orders,
+        errors=errors,
     )

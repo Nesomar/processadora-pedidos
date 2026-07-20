@@ -134,6 +134,27 @@ services:
         condition: service_completed_successfully
     command: ["uv", "run", "--package", "pdf-generator", "python", "-m", "pdf_generator.main"]
 
+  file-consumer:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /workspace
+    ports:
+      - "8083:8083"
+    volumes:
+      - ..:/workspace
+      - uv-cache:/root/.cache/uv
+      - file-consumer-venv:/workspace/.venv
+    env_file:
+      - ../.env
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - UV_LINK_MODE=copy
+    depends_on:
+      ministack:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    command: ["uv", "run", "--package", "file-consumer", "python", "-m", "file_consumer.main"]
+
 volumes:
   uv-cache:
   bootstrap-venv:
@@ -141,3 +162,4 @@ volumes:
   order-processor-venv:
   order-validator-venv:
   pdf-generator-venv:
+  file-consumer-venv:
