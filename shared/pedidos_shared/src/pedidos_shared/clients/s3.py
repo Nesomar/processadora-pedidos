@@ -15,8 +15,11 @@ class S3Client:
             aws_secret_access_key=settings.aws_secret_access_key,
         )
 
-    def put_object(self, bucket: str, key: str, body: bytes) -> None:
-        self._client.put_object(Bucket=bucket, Key=key, Body=body)
+    def put_object(
+        self, bucket: str, key: str, body: bytes, content_type: str | None = None
+    ) -> None:
+        extra = {"ContentType": content_type} if content_type else {}
+        self._client.put_object(Bucket=bucket, Key=key, Body=body, **extra)
 
     def get_object(self, bucket: str, key: str) -> bytes:
         response = self._client.get_object(Bucket=bucket, Key=key)
