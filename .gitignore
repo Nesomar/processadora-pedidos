@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# graphify (knowledge graph output — regenerable, not part of the source tree)
+graphify-out/
