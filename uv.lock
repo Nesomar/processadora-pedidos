@@ -7,6 +7,7 @@ members = [
     "api-gateway",
     "infra-bootstrap",
     "order-processor",
+    "order-validator",
     "pedidos-shared",
 ]
 
@@ -281,6 +282,30 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pedidos-shared", editable = "shared/pedidos_shared" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "order-validator"
+version = "0.1.0"
+source = { editable = "services/order-validator" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pedidos-shared" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pedidos-shared", editable = "shared/pedidos_shared" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },

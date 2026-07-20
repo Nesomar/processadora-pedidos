@@ -92,8 +92,30 @@ services:
         condition: service_completed_successfully
     command: ["uv", "run", "--package", "order-processor", "python", "-m", "order_processor.main"]
 
+  order-validator:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /workspace
+    ports:
+      - "8081:8081"
+    volumes:
+      - ..:/workspace
+      - uv-cache:/root/.cache/uv
+      - order-validator-venv:/workspace/.venv
+    env_file:
+      - ../.env
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - UV_LINK_MODE=copy
+    depends_on:
+      ministack:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    command: ["uv", "run", "--package", "order-validator", "python", "-m", "order_validator.main"]
+
 volumes:
   uv-cache:
   bootstrap-venv:
   api-gateway-venv:
   order-processor-venv:
+  order-validator-venv:
