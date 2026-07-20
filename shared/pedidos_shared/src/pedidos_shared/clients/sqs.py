@@ -1,5 +1,7 @@
 """Cliente fino sobre SQS (constitution VIII — wrapper síncrono, DI de Settings)."""
 
+import json
+
 import boto3
 
 from pedidos_shared.models import MessageEnvelope
@@ -47,5 +49,26 @@ class SqsClient:
         )
         return [
             (MessageEnvelope.model_validate_json(message["Body"]), message["ReceiptHandle"])
+            for message in response.get("Messages", [])
+        ]
+
+    def send_raw(self, queue_url: str, body: dict) -> str:
+        """Como `send`, mas publica um corpo JSON cru — para filas que não usam `MessageEnvelope`
+        (ex.: `pedido_lines_queue`, docs/01-dominio-e-contratos.md §5)."""
+        response = self._client.send_message(QueueUrl=queue_url, MessageBody=json.dumps(body))
+        return response["MessageId"]
+
+    def receive_raw_with_receipt(
+        self, queue_url: str, max_messages: int = 10
+    ) -> list[tuple[dict, str, str]]:
+        """Como `receive_with_receipt`, mas sem validar o corpo contra `MessageEnvelope` — para
+        filas com corpo nativo de terceiros (ex.: `s3_notifications_queue`). Devolve
+        `(corpo_json, receipt_handle, MessageId nativo do SQS)` por mensagem."""
+        response = self._client.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=max_messages,
+        )
+        return [
+            (json.loads(message["Body"]), message["ReceiptHandle"], message["MessageId"])
             for message in response.get("Messages", [])
         ]

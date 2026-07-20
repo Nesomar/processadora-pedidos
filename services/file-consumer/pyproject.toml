@@ -1,0 +1,31 @@
+[project]
+name = "file-consumer"
+version = "0.1.0"
+description = "Worker de consumo de arquivos: consome s3_notifications_queue e publica pedido_lines_queue"
+requires-python = ">=3.12"
+dependencies = [
+    "pedidos-shared",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.uv.sources]
+pedidos-shared = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/file_consumer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

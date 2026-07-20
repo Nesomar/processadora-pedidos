@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "api-gateway",
+    "file-consumer",
     "infra-bootstrap",
     "order-processor",
     "order-validator",
@@ -205,6 +206,28 @@ sdist = { url = "https://files.pythonhosted.org/packages/cd/95/d3f0ae10836324a2e
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/c7/cb03251d9dfb177246a9809a76f189d21df32dbd4a845951881d11323b7f/fastapi-0.139.2-py3-none-any.whl", hash = "sha256:b9ad015a835173d59865e2f5d8296fbc2b317bf56a2ba1a5bfbdd03de2fd4b1c", size = 130234, upload-time = "2026-07-16T15:06:19.557Z" },
 ]
+
+[[package]]
+name = "file-consumer"
+version = "0.1.0"
+source = { editable = "services/file-consumer" }
+dependencies = [
+    { name = "pedidos-shared" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pedidos-shared", editable = "shared/pedidos_shared" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "h11"
