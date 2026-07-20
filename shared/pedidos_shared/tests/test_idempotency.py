@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 
-from pedidos_shared.idempotency import mark_message_processed
+from pedidos_shared.idempotency import is_message_processed, mark_message_processed
 from pedidos_shared.settings import Settings
 
 
@@ -26,6 +26,10 @@ class _FakeTable:
                 "PutItem",
             )
         self._store[pk] = Item
+
+    def get_item(self, Key: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
+        item = self._store.get(Key["PK"])
+        return {"Item": item} if item is not None else {}
 
 
 class _FakeResource:
@@ -67,3 +71,11 @@ def test_first_call_processes_second_call_indicates_duplicate(settings: Settings
 def test_different_message_ids_both_process(settings: Settings) -> None:
     assert mark_message_processed("msg-a", "quickstart", settings) is False
     assert mark_message_processed("msg-b", "quickstart", settings) is False
+
+
+def test_is_message_processed_false_before_mark_true_after(settings: Settings) -> None:
+    assert is_message_processed("msg-1", "quickstart", settings) is False
+
+    mark_message_processed("msg-1", "quickstart", settings)
+
+    assert is_message_processed("msg-1", "quickstart", settings) is True

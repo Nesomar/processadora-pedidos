@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["services/*", "shared/pedidos_shared"]
+members = ["services/*", "shared/pedidos_shared", "infra/bootstrap"]
 
 [tool.uv]
 package = false

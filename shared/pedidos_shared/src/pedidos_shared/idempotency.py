@@ -37,3 +37,14 @@ def mark_message_processed(message_id: str, consumer: str, settings: Settings) -
         raise
 
     return False
+
+
+def is_message_processed(message_id: str, consumer: str, settings: Settings) -> bool:
+    """Checagem só-leitura, sem marcar nada — usada por consumidores que precisam decidir se
+    reprocessam ANTES de saber se o processamento vai ter sucesso (ex.: só chamar
+    `mark_message_processed` depois que o handler concluir, pra falha técnica poder ser
+    reentregue pelo redrive do SQS em vez de ficar marcada como processada sem nunca ter
+    processado de verdade)."""
+    table = DynamoDbClient(settings).table(settings.processed_messages_table_name)
+    item = table.get_item(Key={"PK": f"MSG#{message_id}"}).get("Item")
+    return item is not None and item.get("consumer") == consumer

@@ -150,7 +150,7 @@ isoladamente.
 
 - [X] T030 [P] Escrever `shared/pedidos_shared/README.md` documentando env vars de `Settings` e os contratos de mensagem expostos
 - [X] T031 Rodar `ruff check`/`ruff format --check` em `shared/pedidos_shared/` sem apontamentos
-- [ ] T032 Rodar os cenários de `quickstart.md` ponta a ponta contra o Ministack local (feature `002-infraestrutura-local`)
+- [X] T032 Rodar os cenários de `quickstart.md` ponta a ponta contra o Ministack local (feature `002-infraestrutura-local`) — validado após merge de develop na branch 002: teste de integração SqsClient passou contra Ministack real
 - [ ] T033 [P] Executar o code review da constitution seção VII antes de abrir o PR
 
 ---
