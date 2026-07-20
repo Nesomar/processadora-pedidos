@@ -60,3 +60,30 @@ def test_send_and_receive_full_envelope(settings: Settings) -> None:
     received = sqs.receive(settings.solicitar_pedido_queue_url)
 
     assert any(msg.message_id == envelope.message_id for msg in received)
+
+
+def test_receive_with_receipt_returns_envelope_and_deletable_receipt(settings: Settings) -> None:
+    if not _ministack_available(settings):
+        pytest.skip("Ministack local indisponível (feature 002-infraestrutura-local)")
+    if not settings.solicitar_pedido_queue_url:
+        pytest.skip("SOLICITAR_PEDIDO_QUEUE_URL não configurada")
+
+    sqs = SqsClient(settings)
+    envelope = MessageEnvelope(
+        message_id=str(uuid4()),
+        correlation_id=str(uuid4()),
+        order_id=str(uuid4()),
+        occurred_at=datetime.now(UTC),
+        payload={"foo": "bar"},
+    )
+    sqs.send(settings.solicitar_pedido_queue_url, envelope)
+
+    received = sqs.receive_with_receipt(settings.solicitar_pedido_queue_url)
+    match = next((pair for pair in received if pair[0].message_id == envelope.message_id), None)
+    assert match is not None
+    _, receipt_handle = match
+
+    sqs.delete(settings.solicitar_pedido_queue_url, receipt_handle)
+
+    remaining = sqs.receive_with_receipt(settings.solicitar_pedido_queue_url)
+    assert not any(env.message_id == envelope.message_id for env, _ in remaining)
