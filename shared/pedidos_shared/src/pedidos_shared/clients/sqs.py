@@ -35,3 +35,17 @@ class SqsClient:
 
     def delete(self, queue_url: str, receipt_handle: str) -> None:
         self._client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
+
+    def receive_with_receipt(
+        self, queue_url: str, max_messages: int = 10
+    ) -> list[tuple[MessageEnvelope, str]]:
+        """Como `receive`, mas devolve o `ReceiptHandle` de cada mensagem — necessário pra
+        confirmar (`delete`) uma mensagem específica depois de processá-la."""
+        response = self._client.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=max_messages,
+        )
+        return [
+            (MessageEnvelope.model_validate_json(message["Body"]), message["ReceiptHandle"])
+            for message in response.get("Messages", [])
+        ]

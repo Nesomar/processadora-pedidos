@@ -13,7 +13,7 @@ from pedidos_shared.file_layout import (
     PedidoInvalidoError,
     parse_file,
 )
-from pedidos_shared.idempotency import mark_message_processed
+from pedidos_shared.idempotency import is_message_processed, mark_message_processed
 from pedidos_shared.logging import get_logger
 from pedidos_shared.masking import mask_document
 from pedidos_shared.models import MessageEnvelope, Order, OrderItem
@@ -30,6 +30,7 @@ __all__ = [
     "SqsClient",
     "DynamoDbClient",
     "S3Client",
+    "is_message_processed",
     "mark_message_processed",
     "get_logger",
     "mask_document",
