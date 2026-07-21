@@ -7,6 +7,7 @@ members = [
     "api-gateway",
     "file-consumer",
     "infra-bootstrap",
+    "lambda-line-processor",
     "order-processor",
     "order-validator",
     "pdf-generator",
@@ -350,6 +351,30 @@ sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
+
+[[package]]
+name = "lambda-line-processor"
+version = "0.1.0"
+source = { editable = "services/lambda-line-processor" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pedidos-shared" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pedidos-shared", editable = "shared/pedidos_shared" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "order-processor"
