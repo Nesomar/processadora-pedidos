@@ -1,5 +1,26 @@
 <!--
 Sync Impact Report
+Version change: 1.0.1 → 1.0.2 (patch — esclarecimento, sem mudança de comportamento pretendido)
+Modified principles: I.1 (Event-driven, nunca síncrono entre serviços) reescrito para deixar
+  explícito que a proibição de chamada HTTP é entre os serviços de processamento interno
+  (`order-processor`, `order-validator`, `pdf-generator`, `file-consumer`) — não sobre o
+  `lambda-line-processor` chamar o `api-gateway`. O API Gateway é a porta de entrada HTTP única do
+  sistema tanto pro fluxo online quanto pro fluxo batch (docs/01-dominio-e-contratos.md §1,
+  diagrama do pipeline, presente desde a primeira versão do documento); o Lambda reaproveita essa
+  porta em vez de duplicar geração de `order_id` e validação de payload que só existem em
+  `api_gateway/schemas.py`. Essa era a intenção original — o texto de I.1 só não deixava a exceção
+  explícita, o que gerou um conflito aparente com a spec da feature `008-lambda-line-processor`.
+  Seção VII (Code review obrigatório), item 1, atualizada para referenciar as exceções de I.1 em
+  vez de afirmar "nenhuma chamada HTTP entre serviços internos" sem qualificação.
+Added sections: nenhuma
+Removed sections: nenhuma
+Templates requiring updates:
+  - ✅ .specify/templates/plan-template.md — sem referência literal a I.1, sem edição necessária.
+  - ✅ .specify/templates/spec-template.md — idem.
+  - ✅ .specify/templates/tasks-template.md — idem.
+Follow-up TODOs: nenhum.
+
+Sync Impact Report (histórico)
 Version change: 1.0.0 → 1.0.1 (patch — correção não semântica)
 Modified principles: nenhum princípio novo; seção V (Fluxo de trabalho com Git) e seção IX
   (Definição de pronto) e Governance corrigidas: `dev` → `develop`, pra bater com o nome real da
@@ -38,9 +59,15 @@ Follow-up TODOs: none — RATIFICATION_DATE set to today since this is the first
 
 ## I. Princípios inegociáveis
 
-1. **Event-driven, nunca síncrono entre serviços.** Nenhum microserviço chama outro por HTTP.
-   Toda comunicação entre componentes internos acontece por SQS. A única chamada HTTP de saída
-   permitida é para a API externa de catálogo (dummyjson.com).
+1. **Event-driven, nunca síncrono entre serviços de processamento.** Nenhum dos serviços de
+   processamento interno (`order-processor`, `order-validator`, `pdf-generator`, `file-consumer`)
+   chama outro por HTTP — toda comunicação entre eles acontece por SQS. Duas exceções documentadas:
+   (a) a chamada HTTP de saída ao catálogo externo (dummyjson.com); (b) o `lambda-line-processor`
+   chamando o `api-gateway`. O API Gateway é a porta de entrada HTTP única do sistema, tanto para o
+   fluxo online (cliente HTTP) quanto para o fluxo batch (arquivo `.txt` → S3 →
+   `lambda-line-processor`) — o Lambda reaproveita essa mesma porta de entrada em vez de duplicar a
+   geração de `order_id` e a validação de payload que só existem em `api_gateway/schemas.py`. Fora
+   dessas duas exceções, nenhuma chamada HTTP síncrona é permitida entre componentes do sistema.
 2. **Máquina de estados explícita.** O ciclo de vida do pedido é uma máquina de estados
    persistida no DynamoDB. Nenhum componente bloqueia esperando resposta de outro; cada
    transição é disparada por consumo de mensagem.
@@ -145,8 +172,10 @@ código usando a skill de code review disponível no ambiente — preferencialme
 
 O review deve cobrir, no mínimo:
 
-1. **Aderência à constitution** — nenhuma chamada HTTP entre serviços internos, nenhum valor de
-   infraestrutura hardcoded, `Decimal` em todo cálculo monetário, todo consumidor idempotente.
+1. **Aderência à constitution** — nenhuma chamada HTTP entre serviços de processamento interno
+   fora das exceções documentadas em I.1 (catálogo externo; `lambda-line-processor` → `api-gateway`),
+   nenhum valor de infraestrutura hardcoded, `Decimal` em todo cálculo monetário, todo consumidor
+   idempotente.
 2. **Correção das transições de estado** — nenhuma escrita em `orders` fora do Order Processor.
 3. **Tratamento de erros** — distinção clara entre erro de negócio (marca o pedido) e erro
    técnico (deixa a mensagem voltar para a fila).
@@ -240,4 +269,4 @@ descrição do PR e aprovada em review.
 serviço, nova dependência fora da stack da seção II) deve ser justificado no PR — a alternativa
 mais simples rejeitada e o motivo.
 
-**Version**: 1.0.1 | **Ratified**: 2026-07-18 | **Last Amended**: 2026-07-18
+**Version**: 1.0.2 | **Ratified**: 2026-07-18 | **Last Amended**: 2026-07-20
