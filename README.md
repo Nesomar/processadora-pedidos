@@ -14,7 +14,7 @@ processamento, validação e emissão de nota fiscal em PDF. Roda 100% local via
                                                     │
                                           pedido_lines_queue
                                                     │
-                                            Lambda Line Processor (ainda não implementado)
+                                            Lambda Line Processor
                                                     │
                                                     ▼
                                             ╔═══════════════╗
@@ -40,8 +40,9 @@ processamento, validação e emissão de nota fiscal em PDF. Roda 100% local via
 
 O **Order Processor** é o único serviço que escreve na tabela `orders` e o único dono da máquina
 de estados do pedido; os demais serviços validam, renderizam ou repassam mensagens e nunca se
-chamam diretamente por HTTP (a única exceção é o Order Validator consultando o catálogo externo
-`dummyjson.com`).
+chamam diretamente por HTTP, com duas exceções documentadas: o Order Validator consultando o
+catálogo externo `dummyjson.com`, e o Lambda Line Processor chamando o API Gateway (a porta de
+entrada HTTP única do sistema, tanto pro fluxo online quanto pro batch).
 
 Contrato de domínio completo (entidades, máquina de estados, payloads de fila, layout do arquivo
 posicional, schema DynamoDB): [`docs/01-dominio-e-contratos.md`](docs/01-dominio-e-contratos.md).
@@ -56,7 +57,7 @@ Convenções de arquitetura, stack e fluxo de desenvolvimento: [`.specify/memory
 | `order-validator` | Valida documento, estoque, quantidade mínima e limite de total | `8081` |
 | `pdf-generator` | Gera e armazena a nota fiscal em PDF | `8082` |
 | `file-consumer` | Consome upload de arquivo posicional e publica linha a linha | `8083` |
-| `lambda-line-processor` | Transforma cada linha do arquivo numa chamada ao API Gateway | *ainda não implementado* |
+| `lambda-line-processor` | Transforma cada linha do arquivo numa chamada ao API Gateway | `8084` |
 
 Cada serviço expõe `GET /health`. Contratos de fila consumida/publicada e variáveis de ambiente
 de cada um estão no `README.md` do respectivo diretório em `services/`.
@@ -82,6 +83,7 @@ curl http://localhost:8080/health   # order-processor
 curl http://localhost:8081/health   # order-validator
 curl http://localhost:8082/health   # pdf-generator
 curl http://localhost:8083/health   # file-consumer
+curl http://localhost:8084/health   # lambda-line-processor
 ```
 
 ```bash

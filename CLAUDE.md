@@ -49,7 +49,7 @@ docker compose -f infra/docker-compose.yml up -d ministack bootstrap
 
 Health checks once a service is running: `curl http://localhost:<port>/health` — ports are
 `8000` api-gateway, `8080` order-processor, `8081` order-validator, `8082` pdf-generator, `8083`
-file-consumer (each new worker takes the next free port).
+file-consumer, `8084` lambda-line-processor (each new worker takes the next free port).
 
 ## Architecture
 
@@ -58,7 +58,7 @@ file-consumer (each new worker takes the next free port).
 ```
 [HTTP client] ──────────────┐
                             ▼
-[.txt file] → S3 → s3_notifications_queue → File Consumer → pedido_lines_queue → Lambda Line Processor (not yet built)
+[.txt file] → S3 → s3_notifications_queue → File Consumer → pedido_lines_queue → Lambda Line Processor
                                                                                           │
                                                                                           ▼
                                                                                    API Gateway
@@ -81,8 +81,14 @@ file-consumer (each new worker takes the next free port).
 
 Order Processor is the only writer of the `orders` table and the only owner of state transitions
 — every other service either validates, renders, or ferries messages, and communicates back only
-by publishing to a response queue. No service calls another service directly over HTTP; the one
-exception is Order Validator calling the external product catalog (`dummyjson.com`).
+by publishing to a response queue. No processing service (`order-processor`, `order-validator`,
+`pdf-generator`, `file-consumer`) calls another directly over HTTP. Two documented exceptions to
+that rule (constitution I.1, v1.0.2): Order Validator calling the external product catalog
+(`dummyjson.com`), and Lambda Line Processor calling the API Gateway — the API Gateway is the
+system's single HTTP ingress for both the online and batch paths, and Lambda Line Processor is the
+adapter that closes the batch pipeline by reusing that same ingress (`POST /pedidos`,
+`PUT /pedidos/{order_id}`, `POST /pedidos/{order_id}/cancelamento`) instead of duplicating the
+`order_id` generation and payload validation that only exist in `api_gateway/schemas.py`.
 
 ### Two queue "dialects"
 
