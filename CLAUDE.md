@@ -22,7 +22,8 @@ make up          # docker compose up -d (Ministack + bootstrap + all services)
 make down        # docker compose down
 make bootstrap   # (re)create queues/tables/bucket against a running Ministack
 make test        # uv run --all-packages pytest across shared/, infra/, services/
-make e2e         # pytest tests/e2e (no-op until that suite exists)
+make e2e         # pytest tests/e2e — system tests against the full live docker-compose stack,
+                 # nothing mocked (requires `make up` first; fails in seconds if any /health is down)
 make seed-file   # generate + upload a sample positional file to uploads/
 ```
 
@@ -128,6 +129,19 @@ instead of raising is a *permanent* rejection — it still gets acked, because r
 never produce a different outcome. Getting this distinction backwards (marking-before-handling,
 or treating a business rejection as an exception) was a real bug caught in review during
 `004-order-processor` and is the thing to double-check whenever touching a worker loop.
+
+### `tests/e2e/` — system tests against the live stack
+
+Not a workspace member (no `pyproject.toml`) — it imports `pedidos_shared` and `httpx` directly,
+both already present in the shared `.venv` after `uv sync --all-packages`. Every scenario enters
+through a real entry point (`POST /pedidos`-family calls, or an S3 upload) and polls the API
+Gateway's `GET /pedidos/{order_id}` for the expected outcome — never reads DynamoDB/SQS directly.
+`POST`/`PUT`/cancel calls only *publish* a command; the record they act on is created or updated
+asynchronously by the Order Processor, so a poll must wait for existence (first `GET` succeeding)
+before acting on an order, and — after an edit — for `version` to advance past its pre-edit value,
+not just for "some terminal status," since the *previous* cycle's terminal status (e.g. `REJECTED`)
+is still sitting there the instant the edit is accepted and would otherwise short-circuit the poll
+before the new cycle even starts. Both were real races hit while building `009-e2e-tests`.
 
 ### Spec-driven workflow
 

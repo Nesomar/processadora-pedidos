@@ -89,6 +89,7 @@ curl http://localhost:8084/health   # lambda-line-processor
 ```bash
 make seed-file   # gera e envia um arquivo posicional de exemplo para uploads/
 make test        # roda a suíte de testes de todos os pacotes do workspace
+make e2e         # roda tests/e2e contra o ambiente completo real (nenhum mock)
 make down        # derruba o ambiente
 ```
 
@@ -98,6 +99,7 @@ make down        # derruba o ambiente
 services/            # um diretório por serviço (handlers/domain/adapters/config.py/main.py)
 shared/pedidos_shared/  # contratos de mensagem, máquina de estados, clientes de infra, parser de arquivo
 infra/                # bootstrap idempotente (filas/tabelas/bucket) + docker-compose.yml
+tests/e2e/            # testes de sistema contra o ambiente completo real (make e2e)
 specs/                # specs, planos e tasks gerados via Spec Kit (/speckit-*), um dir por feature
 docs/                 # contrato de domínio — fonte da verdade referenciada por toda spec
 ```
