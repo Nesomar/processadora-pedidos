@@ -22,7 +22,8 @@ make up          # docker compose up -d (Ministack + bootstrap + all services)
 make down        # docker compose down
 make bootstrap   # (re)create queues/tables/bucket against a running Ministack
 make test        # uv run --all-packages pytest across shared/, infra/, services/
-make e2e         # pytest tests/e2e (no-op until that suite exists)
+make e2e         # pytest tests/e2e — system tests against the full live docker-compose stack,
+                 # nothing mocked (requires `make up` first; fails in seconds if any /health is down)
 make seed-file   # generate + upload a sample positional file to uploads/
 ```
 
@@ -49,7 +50,7 @@ docker compose -f infra/docker-compose.yml up -d ministack bootstrap
 
 Health checks once a service is running: `curl http://localhost:<port>/health` — ports are
 `8000` api-gateway, `8080` order-processor, `8081` order-validator, `8082` pdf-generator, `8083`
-file-consumer (each new worker takes the next free port).
+file-consumer, `8084` lambda-line-processor (each new worker takes the next free port).
 
 ## Architecture
 
@@ -58,7 +59,7 @@ file-consumer (each new worker takes the next free port).
 ```
 [HTTP client] ──────────────┐
                             ▼
-[.txt file] → S3 → s3_notifications_queue → File Consumer → pedido_lines_queue → Lambda Line Processor (not yet built)
+[.txt file] → S3 → s3_notifications_queue → File Consumer → pedido_lines_queue → Lambda Line Processor
                                                                                           │
                                                                                           ▼
                                                                                    API Gateway
@@ -81,8 +82,14 @@ file-consumer (each new worker takes the next free port).
 
 Order Processor is the only writer of the `orders` table and the only owner of state transitions
 — every other service either validates, renders, or ferries messages, and communicates back only
-by publishing to a response queue. No service calls another service directly over HTTP; the one
-exception is Order Validator calling the external product catalog (`dummyjson.com`).
+by publishing to a response queue. No processing service (`order-processor`, `order-validator`,
+`pdf-generator`, `file-consumer`) calls another directly over HTTP. Two documented exceptions to
+that rule (constitution I.1, v1.0.2): Order Validator calling the external product catalog
+(`dummyjson.com`), and Lambda Line Processor calling the API Gateway — the API Gateway is the
+system's single HTTP ingress for both the online and batch paths, and Lambda Line Processor is the
+adapter that closes the batch pipeline by reusing that same ingress (`POST /pedidos`,
+`PUT /pedidos/{order_id}`, `POST /pedidos/{order_id}/cancelamento`) instead of duplicating the
+`order_id` generation and payload validation that only exist in `api_gateway/schemas.py`.
 
 ### Two queue "dialects"
 
@@ -122,6 +129,19 @@ instead of raising is a *permanent* rejection — it still gets acked, because r
 never produce a different outcome. Getting this distinction backwards (marking-before-handling,
 or treating a business rejection as an exception) was a real bug caught in review during
 `004-order-processor` and is the thing to double-check whenever touching a worker loop.
+
+### `tests/e2e/` — system tests against the live stack
+
+Not a workspace member (no `pyproject.toml`) — it imports `pedidos_shared` and `httpx` directly,
+both already present in the shared `.venv` after `uv sync --all-packages`. Every scenario enters
+through a real entry point (`POST /pedidos`-family calls, or an S3 upload) and polls the API
+Gateway's `GET /pedidos/{order_id}` for the expected outcome — never reads DynamoDB/SQS directly.
+`POST`/`PUT`/cancel calls only *publish* a command; the record they act on is created or updated
+asynchronously by the Order Processor, so a poll must wait for existence (first `GET` succeeding)
+before acting on an order, and — after an edit — for `version` to advance past its pre-edit value,
+not just for "some terminal status," since the *previous* cycle's terminal status (e.g. `REJECTED`)
+is still sitting there the instant the edit is accepted and would otherwise short-circuit the poll
+before the new cycle even starts. Both were real races hit while building `009-e2e-tests`.
 
 ### Spec-driven workflow
 
