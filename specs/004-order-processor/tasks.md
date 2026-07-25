@@ -182,7 +182,7 @@ a garantia que as fases anteriores já implementaram.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T047 [P] Escrever `services/order-processor/README.md` documentando as 5 filas consumidas, as 2 publicadas, variáveis de ambiente e comando de subida
+- [X] T047 [P] Escrever `services/order-processor/README.md` documentando as 5 filas consumidas, as 2 publicadas, variáveis de ambiente e comando de subida
 - [X] T048 Rodar `ruff check`/`ruff format --check` em `services/order-processor/`
 - [X] T049 Adicionar o serviço `order-processor` a `infra/docker-compose.yml` (build via `uv`, `depends_on` do `bootstrap` concluído, sem porta externa exceto `8080` do `/health`)
 - [X] T050 Rodar os cenários de `quickstart.md` ponta a ponta contra o Ministack local
