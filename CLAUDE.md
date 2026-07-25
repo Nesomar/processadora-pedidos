@@ -25,7 +25,25 @@ make test        # uv run --all-packages pytest across shared/, infra/, services
 make e2e         # pytest tests/e2e — system tests against the full live docker-compose stack,
                  # nothing mocked (requires `make up` first; fails in seconds if any /health is down)
 make seed-file   # generate + upload a sample positional file to uploads/
+make upload FILE=examples/arquivo-valido.txt   # upload an existing local file to uploads/
 ```
+
+`make test` and `make e2e` want *opposite* environments. Several `test_idempotencia` tests publish
+to a real queue and read the message back, so they need Ministack up but the workers **stopped**
+(`docker compose -f infra/docker-compose.yml up -d ministack bootstrap`) — with the full stack
+running, the live consumer eats the message first and those tests fail on an empty queue. `make
+e2e` is the reverse: it needs everything up. The `Makefile` `-include .env` + `export` exists
+because `bootstrap`/`seed-file`/`upload` talk to Ministack from outside compose and `build_client`
+reads the credentials straight from the environment; `pytest --import-mode=importlib` is there
+because several services ship test files with identical basenames (`test_health.py`,
+`test_cancelar_pedido.py`) and no `__init__.py`, which collides during collection in the default
+import mode.
+
+Ready-made request payloads and positional files for manual testing live in `examples/`, and
+`README.md` walks through both flows end to end. One gotcha worth knowing before writing a batch
+fixture: the layout's `customer_document` field is 14 positions zero-padded, and the validator
+reads 14 digits as a CNPJ — so a zero-padded 11-digit CPF always fails validation, and batch
+examples must carry a real CNPJ to reach `COMPLETED`.
 
 Per-package commands (uv workspace — root `pyproject.toml` lists members under `services/*`,
 `shared/pedidos_shared`, `infra/bootstrap`):
