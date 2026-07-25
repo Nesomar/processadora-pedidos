@@ -1,8 +1,14 @@
-"""`make seed-file`: gera um arquivo posicional de exemplo válido e envia pra `uploads/` (§6.9)."""
+"""`make seed-file`: gera um arquivo posicional de exemplo válido e envia pra `uploads/` (§6.9).
+
+Com um caminho como argumento (`make upload FILE=examples/arquivo-valido.txt`), envia esse
+arquivo em vez do gerado — mesmo destino, mesmo prefixo, para testar os exemplos de `examples/`.
+"""
 
 import os
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from resources.aws_clients import build_client
 
@@ -35,10 +41,19 @@ def build_sample_file() -> str:
 
 def main() -> None:
     bucket_name = os.environ.get("PEDIDOS_BUCKET_NAME", "pedidos-bucket")
-    key = f"uploads/seed-{uuid.uuid4().hex[:8]}.txt"
+
+    if len(sys.argv) > 1:
+        origem = Path(sys.argv[1])
+        conteudo = origem.read_bytes()
+        # sufixo único no nome: o mesmo arquivo enviado duas vezes gera duas chaves distintas,
+        # e portanto dois eventos S3 — reenviar um exemplo não esbarra na idempotência.
+        key = f"uploads/{origem.stem}-{uuid.uuid4().hex[:8]}.txt"
+    else:
+        conteudo = build_sample_file().encode("utf-8")
+        key = f"uploads/seed-{uuid.uuid4().hex[:8]}.txt"
 
     s3 = build_client("s3")
-    s3.put_object(Bucket=bucket_name, Key=key, Body=build_sample_file().encode("utf-8"))
+    s3.put_object(Bucket=bucket_name, Key=key, Body=conteudo)
 
     print(f"seed-file: enviado s3://{bucket_name}/{key}")
 

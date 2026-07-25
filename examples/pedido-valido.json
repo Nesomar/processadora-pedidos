@@ -1,0 +1,9 @@
+{
+  "customer_id": "CUSTEXEMPLO01",
+  "customer_name": "Maria Silva",
+  "customer_document": "52998224725",
+  "channel": "HTTP",
+  "items": [
+    { "product_id": 1, "quantity": 50 }
+  ]
+}

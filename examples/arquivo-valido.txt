@@ -1,0 +1,4 @@
+020260101EXEMPLOS_README               000001                                                                                                                                                           
+1SOLICITAR                                     CUSTBATCH01         EMPRESA EXEMPLO LTDA                                        1122233300018101                                                         
+20000000100000050                                                                                                                                                                                       
+90000000100000001                                                                                                                                                                                       
