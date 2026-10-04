@@ -211,6 +211,10 @@ redrive para `{nome}_dlq` com `maxReceiveCount = 3`.
 
 Cada fila acima tem sua DLQ correspondente com sufixo `_dlq`.
 
+As DLQs são consultáveis e reprocessáveis via API Gateway (`GET /dlqs`,
+`GET /dlqs/{fila}/mensagens`, `POST /dlqs/{fila}/reprocessamento`) — ver
+`specs/011-observabilidade-dlq/contracts/dlq-endpoints.md`.
+
 ---
 
 ## 5. Contratos de mensagem

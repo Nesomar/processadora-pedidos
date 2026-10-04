@@ -241,6 +241,24 @@ a operação nas posições 2–11 (`EDITAR    ` / `CANCELAR  `, com padding at�
 o `order_id` de um pedido existente nas posições 12–47. Toda linha tem exatamente 200 caracteres —
 o layout completo está em `docs/01-dominio-e-contratos.md` §6.
 
+### Observando e reprocessando DLQs
+
+Mensagens que falham tecnicamente 3 vezes vão para a DLQ da fila (`{fila}_dlq`) e o pedido fica
+parado num estado não terminal. O gateway expõe três rotas operacionais (**sem autenticação** —
+uso local, não exponha a clientes finais). `{fila}` é a fila de origem, ex. `validar_pedido_queue`:
+
+```bash
+curl -s http://localhost:8000/dlqs                                  # contagem das 9 DLQs
+curl -s "http://localhost:8000/dlqs/{fila}/mensagens?limit=10"      # espia (não consome): order_id, correlation_id, corpo
+curl -s -X POST http://localhost:8000/dlqs/{fila}/reprocessamento   # devolve a DLQ inteira à fila de origem
+curl -s -X POST http://localhost:8000/dlqs/{fila}/reprocessamento     -H 'Content-Type: application/json' -d '{"message_id":"<id da listagem>"}'   # só uma mensagem
+```
+
+Corrija a causa da falha antes de reprocessar. O `customer_document` sai sempre mascarado; a
+mensagem só deixa a DLQ depois de reenviada à fila de origem. Para ver o pedido parado, use o
+`order_id` da listagem em `GET /pedidos/<order_id>`. Contrato:
+`specs/011-observabilidade-dlq/contracts/dlq-endpoints.md`.
+
 ### Baixando a nota fiscal (PDF)
 
 O PDF só é acessível pelo API Gateway — o S3 não é exposto. Com o pedido em `COMPLETED`
@@ -310,6 +328,7 @@ uv sync --all-packages   # restaura o venv completo depois de um sync com --pack
 | `GET /pedidos/{id}` responde `404` logo após o `POST` | Normal: o `202` só significa "comando publicado". Consulte de novo em alguns segundos. |
 | `409` em `GET /pedidos/{id}/nota-fiscal` | Pedido ainda não chegou a `COMPLETED`. Aguarde e repita. |
 | `410` em `GET /pedidos/{id}/nota-fiscal` | Pedido `REJECTED`/`FAILED`/`CANCELLED`: não há PDF. |
+| `GET /dlqs/{fila}/...` responde `404` | `{fila}` precisa ser o nome da fila de origem (uma das 9 de `docs/01-dominio-e-contratos.md` §4), não o da `_dlq`. |
 | `409` ao cancelar | O pedido já passou de `INVOICING`. Cancele logo após a criação (veja a receita acima). |
 | `409` ao editar | Status atual não permite voltar a `PROCESSING` (`COMPLETED`, `CANCELLED`, `INVOICING`...). |
 | `KeyError: 'AWS_ENDPOINT_URL'` em `make upload`/`make seed-file` | Falta o `.env` na raiz — `cp .env.example .env`. |

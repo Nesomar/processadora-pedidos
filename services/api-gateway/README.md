@@ -14,6 +14,9 @@ Lambda Line Processor no fluxo BATCH — exceção documentada a constitution I.
 | `POST` | `/pedidos/{order_id}/cancelamento` | Cancela pedido existente |
 | `GET` | `/pedidos/{order_id}` | Consulta pedido (`customer_document` mascarado) |
 | `GET` | `/pedidos/{order_id}/nota-fiscal` | Devolve o PDF da nota fiscal (`application/pdf`); `404`/`409`/`410` quando indisponível |
+| `GET` | `/dlqs` | Contagem de mensagens nas 9 DLQs (operacional, sem autenticação) |
+| `GET` | `/dlqs/{fila}/mensagens` | Espia mensagens da DLQ sem consumi-las (`limit` 1–50) |
+| `POST` | `/dlqs/{fila}/reprocessamento` | Devolve a DLQ inteira, ou uma mensagem (`message_id`), à fila de origem |
 | `GET` | `/pedidos?customerId=X` | Lista pedidos do cliente, mais recentes primeiro |
 | `GET` | `/health` | Liveness check |
 

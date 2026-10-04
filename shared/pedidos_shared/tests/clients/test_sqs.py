@@ -114,3 +114,131 @@ def test_send_raw_and_receive_raw_with_receipt_roundtrip(settings: Settings) -> 
     assert native_message_id
 
     sqs.delete(settings.s3_notifications_queue_url, receipt_handle)
+
+
+# --- primitivas de DLQ (011-observabilidade-dlq): boto3 mockado ---
+
+
+@pytest.fixture
+def fake_boto(monkeypatch: pytest.MonkeyPatch, settings: Settings):
+    from unittest.mock import MagicMock
+
+    fake = MagicMock()
+    monkeypatch.setattr("pedidos_shared.clients.sqs.boto3.client", lambda *a, **k: fake)
+    return fake
+
+
+def test_queue_url_resolves_by_name(settings: Settings, fake_boto) -> None:
+    fake_boto.get_queue_url.return_value = {"QueueUrl": "http://q/x_dlq"}
+
+    assert SqsClient(settings).queue_url("x_dlq") == "http://q/x_dlq"
+    fake_boto.get_queue_url.assert_called_once_with(QueueName="x_dlq")
+
+
+def test_queue_url_propagates_missing_queue(settings: Settings, fake_boto) -> None:
+    fake_boto.get_queue_url.side_effect = RuntimeError("QueueDoesNotExist")
+
+    with pytest.raises(RuntimeError):
+        SqsClient(settings).queue_url("nope")
+
+
+def test_message_count_sums_visible_in_flight_and_delayed(settings: Settings, fake_boto) -> None:
+    fake_boto.get_queue_attributes.return_value = {
+        "Attributes": {
+            "ApproximateNumberOfMessages": "2",
+            "ApproximateNumberOfMessagesNotVisible": "1",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        }
+    }
+
+    assert SqsClient(settings).message_count("http://q") == 3
+
+
+def test_peek_hides_during_scan_then_releases_and_maps_fields(
+    settings: Settings, fake_boto
+) -> None:
+    fake_boto.receive_message.side_effect = [
+        {
+            "Messages": [
+                {
+                    "MessageId": "m1",
+                    "Body": "{}",
+                    "ReceiptHandle": "r1",
+                    "Attributes": {"SentTimestamp": "1790000000000"},
+                }
+            ]
+        },
+        {"Messages": [{"MessageId": "m2", "Body": "[]", "ReceiptHandle": "r2"}]},
+        {},
+    ]
+
+    result = SqsClient(settings).peek("http://q", 5)
+
+    assert fake_boto.receive_message.call_args.kwargs["VisibilityTimeout"] == 30
+    calls = fake_boto.change_message_visibility.call_args_list
+    assert [c.kwargs["ReceiptHandle"] for c in calls] == ["r1", "r2"]
+    assert all(c.kwargs["VisibilityTimeout"] == 0 for c in calls)
+    fake_boto.delete_message.assert_not_called()
+    assert result == [
+        {"MessageId": "m1", "Body": "{}", "SentTimestamp": "1790000000000"},
+        {"MessageId": "m2", "Body": "[]", "SentTimestamp": None},
+    ]
+
+
+def test_peek_releases_what_it_saw_when_a_later_round_fails(settings: Settings, fake_boto) -> None:
+    fake_boto.receive_message.side_effect = [
+        {"Messages": [{"MessageId": "m1", "Body": "{}", "ReceiptHandle": "r1"}]},
+        RuntimeError("sqs down"),
+    ]
+
+    with pytest.raises(RuntimeError):
+        SqsClient(settings).peek("http://q", 5)
+
+    fake_boto.change_message_visibility.assert_called_once()
+
+
+def test_peek_stops_when_limit_reached(settings: Settings, fake_boto) -> None:
+    fake_boto.receive_message.return_value = {
+        "Messages": [{"MessageId": "m1", "Body": "{}", "ReceiptHandle": "r1"}]
+    }
+
+    result = SqsClient(settings).peek("http://q", 1)
+
+    assert len(result) == 1
+    assert fake_boto.receive_message.call_count == 1
+
+
+def test_peek_empty_queue_returns_empty_list(settings: Settings, fake_boto) -> None:
+    fake_boto.receive_message.return_value = {}
+
+    assert SqsClient(settings).peek("http://q") == []
+
+
+def test_receive_raw_messages_keeps_default_visibility_and_receipt(
+    settings: Settings, fake_boto
+) -> None:
+    fake_boto.receive_message.return_value = {
+        "Messages": [{"MessageId": "m1", "Body": "b", "ReceiptHandle": "r1"}]
+    }
+
+    result = SqsClient(settings).receive_raw_messages("http://q")
+
+    kwargs = fake_boto.receive_message.call_args.kwargs
+    assert "VisibilityTimeout" not in kwargs
+    assert kwargs["WaitTimeSeconds"] == 1
+    assert result == [{"MessageId": "m1", "Body": "b", "ReceiptHandle": "r1"}]
+
+
+def test_release_sets_visibility_to_zero(settings: Settings, fake_boto) -> None:
+    SqsClient(settings).release("http://q", "r1")
+
+    fake_boto.change_message_visibility.assert_called_once_with(
+        QueueUrl="http://q", ReceiptHandle="r1", VisibilityTimeout=0
+    )
+
+
+def test_send_body_forwards_exact_body(settings: Settings, fake_boto) -> None:
+    fake_boto.send_message.return_value = {"MessageId": "new"}
+
+    assert SqsClient(settings).send_body("http://q", '{"a": 1}') == "new"
+    fake_boto.send_message.assert_called_once_with(QueueUrl="http://q", MessageBody='{"a": 1}')

@@ -104,3 +104,39 @@ class ListaPedidosResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class DlqResumo(BaseModel):
+    queue: str
+    dlq: str
+    messages: int
+
+
+class ResumoDlqsResponse(BaseModel):
+    dlqs: list[DlqResumo]
+
+
+class MensagemDlq(BaseModel):
+    message_id: str
+    sent_at: str | None = None
+    order_id: str | None = None
+    correlation_id: str | None = None
+    source_file: str | None = None
+    source_line: int | None = None
+    body: object
+
+
+class ListaMensagensDlqResponse(BaseModel):
+    queue: str
+    messages: list[MensagemDlq]
+    has_more: bool
+
+
+class ReprocessamentoRequest(BaseModel):
+    message_id: str | None = None
+
+
+class ReprocessamentoResponse(BaseModel):
+    queue: str
+    reprocessed: int
+    has_more: bool = False
