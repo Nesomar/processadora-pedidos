@@ -60,6 +60,12 @@ uv run --package <name> ruff format <path>
 other members' dependencies from the environment. Run `uv sync --all-packages` afterward if you
 need another service to import cleanly again.
 
+Service code is bind-mounted into the containers (`..:/workspace`) and uvicorn runs without
+`--reload`, so editing a service's source does nothing to the running stack until you restart it:
+`docker compose -f infra/docker-compose.yml up -d --force-recreate <service>`. `docker compose
+build` has nothing to build (the images are stock `uv`/Ministack) — don't reach for it. Forgetting
+this makes `make e2e` fail against stale code, as happened with the new `invoice_available` field.
+
 Bringing up just the infra to poke at it manually:
 
 ```bash
@@ -108,6 +114,17 @@ system's single HTTP ingress for both the online and batch paths, and Lambda Lin
 adapter that closes the batch pipeline by reusing that same ingress (`POST /pedidos`,
 `PUT /pedidos/{order_id}`, `POST /pedidos/{order_id}/cancelamento`) instead of duplicating the
 `order_id` generation and payload validation that only exist in `api_gateway/schemas.py`.
+
+### Invoice PDF access
+
+`GET /pedidos/{order_id}/nota-fiscal` (api-gateway) streams the PDF straight from S3 as
+`application/pdf` — no presigned URLs, the bucket is never exposed. Order status decides, not key
+presence: `COMPLETED` → 200, in-flight states → 409 (retry), `REJECTED`/`FAILED`/`CANCELLED` → 410,
+`COMPLETED` with missing key/object → 404. An edited order back in `PROCESSING` returns 409 even
+though its old `invoice_s3_key` still exists, so a stale PDF is never served. The API no longer
+returns `invoice_s3_key`; `GET /pedidos` exposes `invoice_available: bool` instead (the key stays
+internal on `Order`). `S3Client.get_object` raises `ObjectNotFoundError` on `NoSuchKey`; any other
+S3 error propagates as a technical failure (500). e2e tests download the PDF and assert `%PDF`.
 
 ### Two queue "dialects"
 
