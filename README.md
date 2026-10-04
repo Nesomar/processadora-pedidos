@@ -241,7 +241,26 @@ a operação nas posições 2–11 (`EDITAR    ` / `CANCELAR  `, com padding at�
 o `order_id` de um pedido existente nas posições 12–47. Toda linha tem exatamente 200 caracteres —
 o layout completo está em `docs/01-dominio-e-contratos.md` §6.
 
-### Conferindo as notas fiscais geradas
+### Baixando a nota fiscal (PDF)
+
+O PDF só é acessível pelo API Gateway — o S3 não é exposto. Com o pedido em `COMPLETED`
+(`invoice_available: true` no `GET /pedidos/<order_id>`):
+
+```bash
+curl -o nota.pdf http://localhost:8000/pedidos/<order_id>/nota-fiscal
+```
+
+| Status | Quando |
+|---|---|
+| `200` | Pedido `COMPLETED`; corpo é o PDF (`application/pdf`) |
+| `404` | Pedido inexistente, ou PDF ausente no armazenamento |
+| `409` | Pedido ainda em processamento (inclusive reprocessamento após edição) — tente de novo |
+| `410` | Pedido `REJECTED`, `FAILED` ou `CANCELLED` — nenhum PDF será gerado |
+
+Vale também para pedidos criados pelo fluxo batch. Contrato:
+`specs/010-acesso-pdf-pedido/contracts/nota-fiscal-endpoint.md`.
+
+### Conferindo as notas fiscais geradas no S3
 
 ```bash
 set -a && . ./.env && set +a       # exporta as credenciais do Ministack no shell
@@ -289,6 +308,8 @@ uv sync --all-packages   # restaura o venv completo depois de um sync com --pack
 | Sintoma | Causa |
 |---|---|
 | `GET /pedidos/{id}` responde `404` logo após o `POST` | Normal: o `202` só significa "comando publicado". Consulte de novo em alguns segundos. |
+| `409` em `GET /pedidos/{id}/nota-fiscal` | Pedido ainda não chegou a `COMPLETED`. Aguarde e repita. |
+| `410` em `GET /pedidos/{id}/nota-fiscal` | Pedido `REJECTED`/`FAILED`/`CANCELLED`: não há PDF. |
 | `409` ao cancelar | O pedido já passou de `INVOICING`. Cancele logo após a criação (veja a receita acima). |
 | `409` ao editar | Status atual não permite voltar a `PROCESSING` (`COMPLETED`, `CANCELLED`, `INVOICING`...). |
 | `KeyError: 'AWS_ENDPOINT_URL'` em `make upload`/`make seed-file` | Falta o `.env` na raiz — `cp .env.example .env`. |
