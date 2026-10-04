@@ -108,7 +108,7 @@ class Order(BaseModel):
     total: Decimal | None
     status: OrderStatus
     status_reason: str | None     # motivo em caso de rejeição/falha
-    invoice_s3_key: str | None    # chave do PDF da nota fiscal
+    invoice_s3_key: str | None    # chave do PDF da nota fiscal (interna: a API expõe só `invoice_available`)
     correlation_id: str           # rastreio ponta a ponta
     source_file: str | None       # nome do arquivo, quando channel == BATCH
     source_line: int | None       # número da linha, quando channel == BATCH
@@ -395,6 +395,9 @@ Bucket único `pedidos-bucket`, com dois prefixos:
 - `uploads/` — arquivos posicionais enviados. Evento `s3:ObjectCreated:*` com filtro de
   prefixo `uploads/` e sufixo `.txt` → `s3_notifications_queue`.
 - `invoices/YYYY/MM/DD/{order_id}.pdf` — notas fiscais geradas.
+
+O bucket não é exposto: o PDF é obtido via `GET /pedidos/{order_id}/nota-fiscal` no API Gateway
+(`200 application/pdf`; `404`/`409`/`410` quando indisponível — ver `specs/010-acesso-pdf-pedido/`).
 
 ---
 

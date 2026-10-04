@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pedidos_shared import Settings
 
 from api_gateway.config import get_settings
-from api_gateway.deps import get_dynamodb_client, get_sqs_client
+from api_gateway.deps import get_dynamodb_client, get_s3_client, get_sqs_client
 from api_gateway.main import app
 
 FAKE_SETTINGS = Settings(
@@ -37,10 +37,18 @@ def fake_dynamodb_client() -> MagicMock:
 
 
 @pytest.fixture
-def client(fake_sqs_client: MagicMock, fake_dynamodb_client: MagicMock) -> TestClient:
+def fake_s3_client() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture
+def client(
+    fake_sqs_client: MagicMock, fake_dynamodb_client: MagicMock, fake_s3_client: MagicMock
+) -> TestClient:
     app.dependency_overrides[get_settings] = lambda: FAKE_SETTINGS
     app.dependency_overrides[get_sqs_client] = lambda: fake_sqs_client
     app.dependency_overrides[get_dynamodb_client] = lambda: fake_dynamodb_client
+    app.dependency_overrides[get_s3_client] = lambda: fake_s3_client
     try:
         yield TestClient(app)
     finally:

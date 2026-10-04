@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pedidos_shared import Order, mask_document
+from pedidos_shared import Order, OrderStatus, mask_document
 from pydantic import BaseModel, model_validator
 
 from api_gateway.domain.validar_payload import PayloadInvalidoError, validar_payload
@@ -79,7 +79,7 @@ class PedidoResponse(BaseModel):
     total: str | None = None
     status: str
     status_reason: str | None = None
-    invoice_s3_key: str | None = None
+    invoice_available: bool = False
     correlation_id: str
     source_file: str | None = None
     source_line: int | None = None
@@ -92,6 +92,9 @@ class PedidoResponse(BaseModel):
         """Constrói a resposta a partir de `Order`, mascarando `customer_document` (FR-008)."""
         data = order.model_dump(mode="json")
         data["customer_document"] = mask_document(order.customer_document)
+        data["invoice_available"] = (
+            order.status == OrderStatus.COMPLETED and order.invoice_s3_key is not None
+        )
         return cls.model_validate(data)
 
 

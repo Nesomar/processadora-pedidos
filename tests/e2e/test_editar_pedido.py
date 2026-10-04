@@ -51,4 +51,9 @@ def test_editing_order_reflects_new_data_and_reprocesses(api_gateway) -> None:
     pedido = _poll_terminal(api_gateway, order_id, apos_version=rejeitado["version"])
 
     assert pedido["status"] == "COMPLETED", pedido.get("status_reason")
-    assert pedido["invoice_s3_key"]
+    assert pedido["invoice_available"] is True
+    assert "invoice_s3_key" not in pedido
+    nota = api_gateway.get(f"/pedidos/{order_id}/nota-fiscal")
+    assert nota.status_code == 200
+    assert nota.headers["content-type"] == "application/pdf"
+    assert nota.content.startswith(b"%PDF")

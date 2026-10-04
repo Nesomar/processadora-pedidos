@@ -4,8 +4,9 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from botocore.exceptions import ClientError
 
-from pedidos_shared.clients.s3 import S3Client
+from pedidos_shared.clients.s3 import ObjectNotFoundError, S3Client
 from pedidos_shared.settings import Settings
 
 
@@ -48,3 +49,31 @@ def test_put_object_with_content_type_forwards_it(
         "Body": b"%PDF-",
         "ContentType": "application/pdf",
     }
+
+
+def _client_error(code: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": "x"}}, "GetObject")
+
+
+def test_get_object_returns_bytes(settings: Settings, fake_boto_client: MagicMock) -> None:
+    fake_boto_client.get_object.return_value = {"Body": MagicMock(read=lambda: b"%PDF-")}
+
+    assert S3Client(settings).get_object("bucket", "k.pdf") == b"%PDF-"
+
+
+def test_get_object_no_such_key_raises_object_not_found(
+    settings: Settings, fake_boto_client: MagicMock
+) -> None:
+    fake_boto_client.get_object.side_effect = _client_error("NoSuchKey")
+
+    with pytest.raises(ObjectNotFoundError):
+        S3Client(settings).get_object("bucket", "k.pdf")
+
+
+def test_get_object_other_client_error_propagates(
+    settings: Settings, fake_boto_client: MagicMock
+) -> None:
+    fake_boto_client.get_object.side_effect = _client_error("AccessDenied")
+
+    with pytest.raises(ClientError):
+        S3Client(settings).get_object("bucket", "k.pdf")
