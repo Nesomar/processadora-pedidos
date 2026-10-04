@@ -39,6 +39,22 @@ def test_consultar_pedido_returns_masked_document(
     assert body["order_id"] == ORDER_ID
     assert body["customer_document"] == "*******8901"
     assert body["status"] == "RECEIVED"
+    assert body["invoice_available"] is False
+    assert "invoice_s3_key" not in body
+
+
+def test_consultar_pedido_completed_com_pdf_indica_invoice_available(
+    client: TestClient, fake_dynamodb_client: MagicMock
+) -> None:
+    fake_dynamodb_client.get_item.return_value = {
+        **_order_dict("COMPLETED"),
+        "invoice_s3_key": "invoices/x.pdf",
+    }
+
+    body = client.get(f"/pedidos/{ORDER_ID}").json()
+
+    assert body["invoice_available"] is True
+    assert "invoice_s3_key" not in body
 
 
 def test_consultar_pedido_returns_404_when_not_found(

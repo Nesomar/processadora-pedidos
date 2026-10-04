@@ -133,7 +133,7 @@ curl -s http://localhost:8000/pedidos/<order_id>
   "items": [{ "product_id": 1, "quantity": 50, "unit_price": "9.99",
               "line_total": "447.15", "product_title": "Essence Mascara Lash Princess" }],
   "subtotal": "499.50", "discount_total": "52.35", "total": "447.15",
-  "invoice_s3_key": "invoices/2026/07/25/90e305d4-....pdf",
+  "invoice_available": true,
   "version": 2
 }
 ```
@@ -141,6 +141,15 @@ curl -s http://localhost:8000/pedidos/<order_id>
 Preço, desconto, título e SKU vêm do catálogo externo (`dummyjson.com`) preenchidos pelo Order
 Validator; `customer_document` sempre sai mascarado. Use `GET /pedidos?customerId=<id>` para
 listar por cliente.
+
+Com `invoice_available: true`, baixe a nota fiscal direto pelo gateway (o S3 não é exposto):
+
+```bash
+curl -o nota.pdf http://localhost:8000/pedidos/<order_id>/nota-fiscal
+```
+
+Sem PDF: `404` (pedido inexistente ou PDF ausente), `409` (ainda em processamento, tente de novo),
+`410` (`REJECTED`/`FAILED`/`CANCELLED` — nenhum PDF será gerado).
 
 **3. Rejeição de negócio.** Com `pedido-documento-invalido.json` o pedido chega a `REJECTED` com o
 motivo preenchido — e a mensagem é confirmada na fila, porque reprocessar nunca mudaria o

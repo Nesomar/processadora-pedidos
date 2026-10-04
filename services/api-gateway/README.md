@@ -13,6 +13,7 @@ Lambda Line Processor no fluxo BATCH — exceção documentada a constitution I.
 | `PUT` | `/pedidos/{order_id}` | Edita pedido existente |
 | `POST` | `/pedidos/{order_id}/cancelamento` | Cancela pedido existente |
 | `GET` | `/pedidos/{order_id}` | Consulta pedido (`customer_document` mascarado) |
+| `GET` | `/pedidos/{order_id}/nota-fiscal` | Devolve o PDF da nota fiscal (`application/pdf`); `404`/`409`/`410` quando indisponível |
 | `GET` | `/pedidos?customerId=X` | Lista pedidos do cliente, mais recentes primeiro |
 | `GET` | `/health` | Liveness check |
 

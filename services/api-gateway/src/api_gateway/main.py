@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from api_gateway.handlers.baixar_nota_fiscal import router as baixar_nota_fiscal_router
 from api_gateway.handlers.cancelar_pedido import router as cancelar_pedido_router
 from api_gateway.handlers.consultar_pedido import router as consultar_pedido_router
 from api_gateway.handlers.editar_pedido import router as editar_pedido_router
@@ -16,6 +17,7 @@ app.include_router(editar_pedido_router)
 app.include_router(cancelar_pedido_router)
 app.include_router(listar_pedidos_router)
 app.include_router(consultar_pedido_router)
+app.include_router(baixar_nota_fiscal_router)
 
 
 @app.exception_handler(RequestValidationError)

@@ -32,6 +32,11 @@ def test_online_order_reaches_completed_with_invoice(api_gateway) -> None:
     )
 
     assert pedido["status"] == "COMPLETED", pedido.get("status_reason")
-    assert pedido["invoice_s3_key"]
+    assert pedido["invoice_available"] is True
+    assert "invoice_s3_key" not in pedido
+    nota = api_gateway.get(f"/pedidos/{order_id}/nota-fiscal")
+    assert nota.status_code == 200
+    assert nota.headers["content-type"] == "application/pdf"
+    assert nota.content.startswith(b"%PDF")
     assert pedido["total"] is not None
     assert pedido["items"][0]["unit_price"] is not None

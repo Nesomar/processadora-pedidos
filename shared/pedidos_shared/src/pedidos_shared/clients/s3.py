@@ -1,8 +1,13 @@
 """Cliente fino sobre S3 (constitution VIII — wrapper síncrono, DI de Settings)."""
 
 import boto3
+from botocore.exceptions import ClientError
 
 from pedidos_shared.settings import Settings
+
+
+class ObjectNotFoundError(Exception):
+    """Objeto inexistente no bucket (`NoSuchKey`) — distinto de falha técnica do S3."""
 
 
 class S3Client:
@@ -22,5 +27,10 @@ class S3Client:
         self._client.put_object(Bucket=bucket, Key=key, Body=body, **extra)
 
     def get_object(self, bucket: str, key: str) -> bytes:
-        response = self._client.get_object(Bucket=bucket, Key=key)
+        try:
+            response = self._client.get_object(Bucket=bucket, Key=key)
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") == "NoSuchKey":
+                raise ObjectNotFoundError(key) from error
+            raise
         return response["Body"].read()

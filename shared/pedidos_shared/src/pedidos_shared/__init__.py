@@ -5,7 +5,7 @@ logar o documento em claro (constitution VII.6, FR-011/FR-012).
 """
 
 from pedidos_shared.clients.dynamodb import DynamoDbClient
-from pedidos_shared.clients.s3 import S3Client
+from pedidos_shared.clients.s3 import ObjectNotFoundError, S3Client
 from pedidos_shared.clients.sqs import SqsClient
 from pedidos_shared.file_layout import (
     ArquivoInvalidoError,
@@ -30,6 +30,7 @@ __all__ = [
     "SqsClient",
     "DynamoDbClient",
     "S3Client",
+    "ObjectNotFoundError",
     "is_message_processed",
     "mark_message_processed",
     "get_logger",
