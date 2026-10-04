@@ -119,6 +119,16 @@ Consuming/producing on these two queues goes through `SqsClient.receive_raw_with
 `send_raw` instead of the typed `receive`/`send`, and idempotency is keyed by the raw SQS
 `MessageId` rather than an application-level `message_id` (see `services/file-consumer/`).
 
+### DLQ operations
+
+`GET /dlqs`, `GET /dlqs/{fila}/mensagens`, `POST /dlqs/{fila}/reprocessamento` (api-gateway, no
+auth — local operator use). `{fila}` is the *origin* queue name; the DLQ is `{fila}_dlq`. Reprocessing
+sends to the origin queue *before* deleting from the DLQ, so a mid-way failure duplicates (consumers
+are idempotent by `message_id`) but never loses. Ministack treats `VisibilityTimeout=0` on
+`receive_message` as the 60 s default, which would hide a "peeked" message; `SqsClient.peek` instead
+receives with 1 s and releases via `change_message_visibility(0)`. Integration tests for these routes
+leave no residue only because they reprocess what they create — never reprocess a whole DLQ in a test.
+
 ### Shared package (`shared/pedidos_shared`)
 
 Single source of truth for message contracts, the `Order`/`OrderStatus` state machine
